@@ -37,7 +37,8 @@ jobs:
       - name: Install yamllint
         run: pipx install yamllint
       - name: Lint YAML
-        run: yamllint -d "{extends: relaxed, rules: {line-length: disable, document-start: disable}}" .
+        run: |
+          yamllint -d "{extends: relaxed, rules: {line-length: disable, document-start: disable}}" .
 
   shellcheck:
     runs-on: ubuntu-latest
