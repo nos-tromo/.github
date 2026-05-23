@@ -17,10 +17,20 @@ on:
         type: string
         default: '--frozen --group dev'
       docker-build:
-        description: 'Run `make build` to validate that the app images compose+build.'
+        description: 'Run `docker compose build` to validate that the app images build.'
         required: false
         type: boolean
         default: false
+      docker-compose-files:
+        description: 'Compose files for `docker compose build`. Default mirrors the federation layout: docker/compose.yaml + docker/compose.override.yaml.'
+        required: false
+        type: string
+        default: '-f docker/compose.yaml -f docker/compose.override.yaml'
+      docker-compose-profiles:
+        description: 'Profiles for `docker compose build` (e.g. "--profile cpu"). Required for repos that gate services behind a profile.'
+        required: false
+        type: string
+        default: ''
       free-disk-space:
         description: 'Free runner disk before the docker job (needed for fastembed/torch images).'
         required: false
@@ -148,13 +158,28 @@ jobs:
       - uses: actions/checkout@v6
       - uses: docker/setup-buildx-action@v4
       - name: Create external networks
-        # Every app's compose declares inference-net and data-net as external.
-        # `make build` (and `docker compose build` under it) needs them present.
+        # Every app's compose declares inference-net and data-net as external;
+        # `docker compose build` resolves the compose file before building, so
+        # these must exist or resolution fails.
         run: |
           docker network create inference-net >/dev/null 2>&1 || true
           docker network create data-net >/dev/null 2>&1 || true
+      - name: Stub .env
+        # Compose files reference `--env-file .env` in every consumer Makefile;
+        # a missing .env causes compose to error before build starts. The
+        # placeholder values cover any ${VAR}-substituted fields without
+        # implying real secrets.
+        run: |
+          if [ ! -f .env ]; then
+            {
+              echo "NEO4J_PASSWORD=ci-placeholder-not-real"
+              echo "OPENAI_API_KEY=sk-ci-placeholder"
+              echo "OPENAI_API_BASE=http://test-host:11434/v1"
+            } > .env
+          fi
       - name: Build images
         env:
           DOCKER_BUILDKIT: '1'
-          PROFILE: cpu
-        run: make build
+          FILES: ${{ inputs.docker-compose-files }}
+          PROFILES: ${{ inputs.docker-compose-profiles }}
+        run: docker compose --env-file .env $FILES $PROFILES build
