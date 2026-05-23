@@ -74,11 +74,13 @@ jobs:
       - name: Resolve canonical strict-config ref
         id: canonical-ref
         env:
-          # github.workflow_ref is e.g.
+          # github.job_workflow_ref is e.g.
           #   nos-tromo/.github/.github/workflows/python-app-ci.yml@refs/tags/v2
-          # Set by GitHub for the reusable workflow itself; we strip
-          # everything up to and including the '@' to recover the ref.
-          WORKFLOW_REF: ${{ github.workflow_ref }}
+          # Unlike github.workflow_ref (which points to the *calling* workflow,
+          # e.g. consumer-repo/.github/workflows/ci.yml@refs/pull/N/merge),
+          # github.job_workflow_ref points to this reusable workflow itself.
+          # We strip everything up to and including the '@' to recover the ref.
+          WORKFLOW_REF: ${{ github.job_workflow_ref }}
         run: |
           ref="${WORKFLOW_REF##*@}"
           echo "ref=$ref" >> "$GITHUB_OUTPUT"
