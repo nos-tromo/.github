@@ -1,0 +1,100 @@
+name: infra-validation
+
+# Reusable workflow for nos-tromo infra repos (vllm-service, data-plane).
+# Validates compose syntax, lints YAML, lints Dockerfiles, lints shell scripts.
+
+on:
+  workflow_call:
+    inputs:
+      compose-files:
+        description: 'Space-separated -f arguments for `docker compose config`. Example: "-f docker/compose.yaml -f docker/compose.override.yaml".'
+        required: true
+        type: string
+      compose-profiles:
+        description: 'Space-separated --profile arguments. Example: "--profile cpu --profile cuda".'
+        required: false
+        type: string
+        default: ''
+      dockerfiles-glob:
+        description: 'Glob for hadolint. Defaults to docker/Dockerfile.*.'
+        required: false
+        type: string
+        default: 'docker/Dockerfile.*'
+      shell-scripts-glob:
+        description: 'Glob for shellcheck. Defaults to scripts/*.sh.'
+        required: false
+        type: string
+        default: 'scripts/*.sh'
+
+permissions:
+  contents: read
+
+jobs:
+  yamllint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install yamllint
+        run: pipx install yamllint
+      - name: Lint YAML
+        run: yamllint -d "{extends: relaxed, rules: {line-length: disable, document-start: disable}}" .
+
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Run shellcheck
+        env:
+          GLOB: ${{ inputs.shell-scripts-glob }}
+        run: |
+          shopt -s nullglob
+          # shellcheck disable=SC2086
+          files=( $GLOB )
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No shell scripts matched $GLOB; skipping."
+            exit 0
+          fi
+          shellcheck "${files[@]}"
+
+  hadolint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Run hadolint on Dockerfiles
+        env:
+          GLOB: ${{ inputs.dockerfiles-glob }}
+        run: |
+          shopt -s nullglob
+          # shellcheck disable=SC2086
+          files=( $GLOB )
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No Dockerfiles matched $GLOB; skipping."
+            exit 0
+          fi
+          for f in "${files[@]}"; do
+            docker run --rm -i ghcr.io/hadolint/hadolint:v2.12.0 < "$f"
+          done
+
+  compose-config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Stub external networks + volumes
+        # External resources declared in compose must exist before `docker compose
+        # config` will resolve. Create idempotently; mirrors `make network`.
+        run: |
+          docker network create inference-net >/dev/null 2>&1 || true
+          docker network create data-net >/dev/null 2>&1 || true
+          docker volume create huggingface-cache >/dev/null 2>&1 || true
+      - name: Stub required env vars
+        # Placeholder values for variable interpolation only; never committed.
+        run: |
+          {
+            echo "NEO4J_PASSWORD=ci-placeholder-not-real"
+            echo "OPENAI_API_KEY=sk-ci-placeholder"
+          } > .env
+      - name: Validate compose
+        env:
+          FILES: ${{ inputs.compose-files }}
+          PROFILES: ${{ inputs.compose-profiles }}
+        run: docker compose --env-file .env $FILES $PROFILES config --quiet
