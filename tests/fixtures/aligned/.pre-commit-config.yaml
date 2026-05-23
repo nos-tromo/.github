@@ -1,0 +1,17 @@
+# Aligned smoke-test fixture: ruff and mypy hook revs match
+# configs/python-strict/precommit-versions.yaml exactly. The validator should
+# exit 0 against this fixture; if it doesn't, the regex in
+# _extract_precommit_rev has regressed.
+#
+# When precommit-versions.yaml changes, this file must be updated to match.
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.14
+    hooks:
+      - id: ruff-check
+      - id: ruff-format
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.19.0
+    hooks:
+      - id: mypy

@@ -141,7 +141,24 @@ latest.
 
 ## Working in this repo
 
-There is no test suite. The validator script is the testable artifact:
+A self-CI workflow ([`.github/workflows/self-ci.yml`](.github/workflows/self-ci.yml))
+runs on every PR and push to `main`. It does two things:
+
+1. **Lints `scripts/`** with `ruff check` and `ruff format --check`
+   using the canonical strict config and the same ruff version every
+   consumer gets (pinned in
+   [`precommit-versions.yaml`](configs/python-strict/precommit-versions.yaml)).
+   The validator that enforces strict mode must itself pass strict mode.
+2. **Smoke-tests the validator** against fixtures in
+   [`tests/fixtures/`](tests/fixtures/): an `aligned` fixture (must
+   return 0; also exercises the `target-version` allowed-override) and
+   a `drifted` fixture (must return non-zero).
+
+When anything under `configs/python-strict/` changes, the aligned
+fixture must be updated to mirror it — same drift signal real
+consumers get, applied to this repo's own fixture.
+
+To run the validator against a real consumer locally:
 
 ```bash
 python3 scripts/validate_strict_config.py --consumer-root ../chorus
