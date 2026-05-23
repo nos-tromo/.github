@@ -23,13 +23,26 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
-
 ALLOWED_RUFF_OVERRIDES = {"target-version"}
 RUFF_PRECOMMIT_REPO = "https://github.com/astral-sh/ruff-pre-commit"
 MYPY_PRECOMMIT_REPO = "https://github.com/pre-commit/mirrors-mypy"
 
 
 def _coerce_ini_value(raw: str) -> Any:
+    """Coerce a configparser string value to a Python primitive.
+
+    configparser returns every value as a string; this normalizes the
+    canonical mypy.ini values so they compare equal to the real
+    bools/ints loaded from the consumer's pyproject TOML.
+
+    Args:
+        raw: The raw string as read from configparser.
+
+    Returns:
+        ``True``/``False`` for the literal strings (case-insensitive),
+        an ``int`` for any integer literal (including negative),
+        otherwise the stripped string.
+    """
     stripped = raw.strip()
     low = stripped.lower()
     if low in ("true", "false"):
@@ -40,6 +53,20 @@ def _coerce_ini_value(raw: str) -> Any:
 
 
 def _flatten(d: dict[str, Any], prefix: str = "") -> dict[str, Any]:
+    """Flatten a nested dict into single-level dotted keys.
+
+    Renders TOML table paths (``tool.ruff.lint.select``) as flat keys
+    so canonical and consumer configs can be diffed key-for-key.
+
+    Args:
+        d: The nested dict to flatten.
+        prefix: Internal recursion accumulator; callers should leave
+            this at the default.
+
+    Returns:
+        A new dict whose keys are dot-joined paths to every leaf value
+        in ``d``.
+    """
     flat: dict[str, Any] = {}
     for k, v in d.items():
         key = f"{prefix}.{k}" if prefix else k
@@ -51,10 +78,28 @@ def _flatten(d: dict[str, Any], prefix: str = "") -> dict[str, Any]:
 
 
 def _load_canonical_ruff(path: Path) -> dict[str, Any]:
+    """Parse the canonical ``ruff.toml`` into flattened-key form.
+
+    Args:
+        path: Filesystem path to the canonical ``ruff.toml``.
+
+    Returns:
+        The TOML contents as a single-level dict keyed by dotted
+        table paths (see :func:`_flatten`).
+    """
     return _flatten(tomllib.loads(path.read_text()))
 
 
 def _load_canonical_mypy(path: Path) -> dict[str, Any]:
+    """Parse the canonical ``mypy.ini`` ``[mypy]`` section into a typed dict.
+
+    Args:
+        path: Filesystem path to the canonical ``mypy.ini``.
+
+    Returns:
+        A dict mapping each option name in the ``[mypy]`` section to a
+        Python-typed value (bool/int/str — see :func:`_coerce_ini_value`).
+    """
     parser = configparser.ConfigParser()
     parser.read_string(path.read_text())
     section = parser["mypy"]
@@ -62,6 +107,19 @@ def _load_canonical_mypy(path: Path) -> dict[str, Any]:
 
 
 def _load_canonical_versions(path: Path) -> dict[str, str]:
+    """Parse the ``tool: rev`` lines in ``precommit-versions.yaml``.
+
+    Hand-rolled rather than using a YAML library so this script stays
+    stdlib-only; the file is a flat ``key: value`` mapping with ``#``
+    comments.
+
+    Args:
+        path: Filesystem path to ``precommit-versions.yaml``.
+
+    Returns:
+        A dict mapping each tool name to its pinned rev (e.g.
+        ``{"ruff": "v0.15.14"}``).
+    """
     out: dict[str, str] = {}
     for raw in path.read_text().splitlines():
         line = raw.split("#", 1)[0].strip()
@@ -73,6 +131,21 @@ def _load_canonical_versions(path: Path) -> dict[str, str]:
 
 
 def _extract_precommit_rev(text: str, repo_url: str) -> str | None:
+    """Return the ``rev:`` pinned for ``repo_url`` in a pre-commit config.
+
+    Uses a regex rather than a YAML parser to keep this script
+    stdlib-only; matches the standard layout of ``- repo: <url>``
+    followed by ``rev: <value>`` on a subsequent line, with optional
+    quoting.
+
+    Args:
+        text: Full contents of ``.pre-commit-config.yaml``.
+        repo_url: The ``repo:`` URL to look up.
+
+    Returns:
+        The rev string (unquoted), or ``None`` if no matching hook
+        block is found.
+    """
     pattern = re.compile(
         r"-\s*repo:\s*" + re.escape(repo_url) + r"[^\n]*\n[^\n]*?rev:\s*[\"']?([^\"'\s]+)[\"']?",
         re.MULTILINE,
@@ -82,6 +155,25 @@ def _extract_precommit_rev(text: str, repo_url: str) -> str | None:
 
 
 def _diff(label: str, consumer: dict[str, Any], canonical: dict[str, Any], overrides: set[str]) -> list[str]:
+    """Compare a consumer config dict to the canonical and report drift.
+
+    Reports three kinds of drift: missing canonical keys, value
+    mismatches, and extra keys the consumer added beyond the canonical
+    set. Keys named in ``overrides`` are skipped in every direction.
+
+    Args:
+        label: Tag inserted into each drift message (e.g.
+            ``"tool.ruff"``) so readers can locate the offending block
+            in their ``pyproject.toml``.
+        consumer: The consumer's flattened config dict.
+        canonical: The canonical flattened config dict.
+        overrides: Keys the consumer is permitted to set freely (e.g.
+            :data:`ALLOWED_RUFF_OVERRIDES`).
+
+    Returns:
+        A list of human-readable drift messages, one per discrepancy.
+        Empty list means the consumer is aligned.
+    """
     drifts: list[str] = []
     for key, expected in canonical.items():
         if key in overrides:
@@ -91,9 +183,7 @@ def _diff(label: str, consumer: dict[str, Any], canonical: dict[str, Any], overr
             continue
         if consumer[key] != expected:
             drifts.append(
-                f"  [{label}] {key} drifted:\n"
-                f"      consumer:  {consumer[key]!r}\n"
-                f"      canonical: {expected!r}"
+                f"  [{label}] {key} drifted:\n      consumer:  {consumer[key]!r}\n      canonical: {expected!r}"
             )
     for key, value in consumer.items():
         if key in overrides or key in canonical:
@@ -103,6 +193,20 @@ def _diff(label: str, consumer: dict[str, Any], canonical: dict[str, Any], overr
 
 
 def main() -> int:
+    """Run the alignment check and return a shell exit code.
+
+    Reads the consumer's ``pyproject.toml`` and
+    ``.pre-commit-config.yaml`` (rooted at ``--consumer-root``,
+    default ``.``) and diffs them against the canonical configs in
+    ``--canonical-dir`` (default ``configs/python-strict/`` adjacent
+    to this script). Drift is printed to stderr; an OK summary is
+    printed to stdout.
+
+    Returns:
+        ``0`` if the consumer is fully aligned with the canonical
+        strict config, ``1`` on any drift or if a required file is
+        missing.
+    """
     script_dir = Path(__file__).resolve().parent
     default_canonical = script_dir.parent / "configs" / "python-strict"
 
@@ -151,10 +255,7 @@ def main() -> int:
             continue
         actual = _extract_precommit_rev(precommit_text, repo_url)
         if actual is None:
-            drifts.append(
-                f"  [.pre-commit-config.yaml] {repo_url} hook not found "
-                f"(expected rev: {expected})"
-            )
+            drifts.append(f"  [.pre-commit-config.yaml] {repo_url} hook not found (expected rev: {expected})")
         elif actual != expected:
             drifts.append(
                 f"  [.pre-commit-config.yaml] {repo_url} rev drifted:\n"
