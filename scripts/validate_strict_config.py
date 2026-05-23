@@ -248,19 +248,52 @@ def main() -> int:
 
     versions = _load_canonical_versions(canonical_versions)
     precommit_text = consumer_precommit.read_text()
-    for tool, repo_url in (("ruff", RUFF_PRECOMMIT_REPO), ("mypy", MYPY_PRECOMMIT_REPO)):
-        expected = versions.get(tool)
-        if not expected:
-            drifts.append(f"  [precommit-versions.yaml] canonical missing entry: {tool}")
-            continue
-        actual = _extract_precommit_rev(precommit_text, repo_url)
-        if actual is None:
-            drifts.append(f"  [.pre-commit-config.yaml] {repo_url} hook not found (expected rev: {expected})")
-        elif actual != expected:
+
+    # ruff still pinned by hook rev — straightforward mirrors-pre-commit usage.
+    expected_ruff = versions.get("ruff")
+    if not expected_ruff:
+        drifts.append("  [precommit-versions.yaml] canonical missing entry: ruff")
+    else:
+        actual_ruff = _extract_precommit_rev(precommit_text, RUFF_PRECOMMIT_REPO)
+        if actual_ruff is None:
             drifts.append(
-                f"  [.pre-commit-config.yaml] {repo_url} rev drifted:\n"
-                f"      consumer:  {actual}\n"
-                f"      canonical: {expected}"
+                f"  [.pre-commit-config.yaml] {RUFF_PRECOMMIT_REPO} hook not found "
+                f"(expected rev: {expected_ruff})"
+            )
+        elif actual_ruff != expected_ruff:
+            drifts.append(
+                f"  [.pre-commit-config.yaml] {RUFF_PRECOMMIT_REPO} rev drifted:\n"
+                f"      consumer:  {actual_ruff}\n"
+                f"      canonical: {expected_ruff}"
+            )
+
+    # mypy is a *local* pre-commit hook running `uv run mypy` so it sees the
+    # project venv (strict mypy needs every dep's types to resolve decorators
+    # and base classes). The mypy version itself is pinned in dev deps.
+    expected_mypy = versions.get("mypy")
+    if not expected_mypy:
+        drifts.append("  [precommit-versions.yaml] canonical missing entry: mypy")
+    else:
+        if "uv run mypy" not in precommit_text:
+            drifts.append(
+                "  [.pre-commit-config.yaml] mypy hook must be a `local` hook with "
+                "`entry: uv run mypy` (so mypy sees the project venv)"
+            )
+        if _extract_precommit_rev(precommit_text, MYPY_PRECOMMIT_REPO) is not None:
+            drifts.append(
+                f"  [.pre-commit-config.yaml] {MYPY_PRECOMMIT_REPO} hook must be "
+                "removed — mypy is now a local hook"
+            )
+        dev_deps = (
+            pyproject.get("dependency-groups", {}).get("dev", [])
+            if isinstance(pyproject.get("dependency-groups"), dict)
+            else []
+        )
+        expected_pin = f"mypy=={expected_mypy}"
+        if expected_pin not in dev_deps:
+            drifts.append(
+                f"  [pyproject.toml dependency-groups.dev] must pin {expected_pin!r} "
+                f"(found: {[d for d in dev_deps if isinstance(d, str) and d.startswith('mypy')]})"
             )
 
     if drifts:
@@ -269,8 +302,8 @@ def main() -> int:
             print(d, file=sys.stderr)
         print(
             "\nTo fix: mirror nos-tromo/.github/configs/python-strict/ contents into\n"
-            "  - your pyproject.toml ([tool.ruff], [tool.mypy])\n"
-            "  - your .pre-commit-config.yaml (ruff and mypy hook revs)",
+            "  - your pyproject.toml ([tool.ruff], [tool.mypy], dev mypy pin)\n"
+            "  - your .pre-commit-config.yaml (ruff rev + local mypy hook running `uv run mypy`)",
             file=sys.stderr,
         )
         return 1

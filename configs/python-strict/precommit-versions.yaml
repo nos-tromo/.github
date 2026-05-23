@@ -1,9 +1,13 @@
 # Canonical pre-commit hook versions for the strict regime.
 #
-# Mirror these revs into each consumer's .pre-commit-config.yaml on the
-# ruff-pre-commit and mirrors-mypy hooks. The validate_strict_config.py
-# check in python-app-ci.yml diffs the consumer's revs against this file
-# and fails CI on drift.
+# - ruff: pinned to a release rev of astral-sh/ruff-pre-commit; consumers
+#   mirror the rev exactly.
+# - mypy: NOT pinned to a rev. Strict mypy needs to see every dep's types
+#   (FastAPI/llama-index/qdrant decorators, base classes, return types) and
+#   pre-commit's isolated env can't keep up with each repo's dep set. The
+#   canonical mypy hook is a *local* hook that runs `uv run mypy` so it
+#   uses the project's venv. Pin the mypy version in your dev deps
+#   (e.g. `mypy==1.19.0`) — the validator checks that pin instead.
 
 ruff: v0.15.14
-mypy: v1.19.0
+mypy: "1.19.0"  # checked against pyproject dev deps, not pre-commit rev
