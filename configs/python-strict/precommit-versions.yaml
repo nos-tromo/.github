@@ -1,0 +1,9 @@
+# Canonical pre-commit hook versions for the strict regime.
+#
+# Mirror these revs into each consumer's .pre-commit-config.yaml on the
+# ruff-pre-commit and mirrors-mypy hooks. The validate_strict_config.py
+# check in python-app-ci.yml diffs the consumer's revs against this file
+# and fails CI on drift.
+
+ruff: v0.15.14
+mypy: v1.19.0

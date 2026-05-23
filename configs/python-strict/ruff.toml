@@ -1,0 +1,23 @@
+# Canonical strict ruff config for nos-tromo Python apps.
+#
+# Mirror this file's contents into each consumer's pyproject.toml under
+# [tool.ruff]. The validate_strict_config.py check in python-app-ci.yml
+# diffs the consumer's [tool.ruff] block against this file and fails CI
+# on drift. The only key a consumer may override is `target-version`
+# (each repo has a different Python floor).
+
+target-version = "py311"
+
+[lint]
+select = [
+    "E", "F", "W",
+    "I",
+    "B",
+    "D",
+    "ANN",
+    "UP",
+    "RUF",
+]
+
+[lint.pydocstyle]
+convention = "google"
