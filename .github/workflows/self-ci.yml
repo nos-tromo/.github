@@ -1,0 +1,71 @@
+name: self-ci
+
+# Self-CI for the org-wide .github repo. The repo's two main workflows are
+# reusable (`on: workflow_call`) and don't fire on pushes here — without this
+# file, nothing would lint or test the validator script that gatekeeps every
+# consumer's strict-mode regime.
+#
+# Two jobs:
+#   lint-validator   — runs `ruff check` and `ruff format --check` against
+#                      scripts/ using the canonical strict config, pinned to
+#                      the same ruff version consumers use (read out of
+#                      precommit-versions.yaml so there's one source of truth).
+#   validator-smoke  — runs the validator against an aligned fixture (must
+#                      exit 0) and a drifted fixture (must exit non-zero).
+#                      Catches regressions in the validator itself.
+#
+# Security note: no step interpolates untrusted user input from
+# github.event.*; the only `${{ ... }}` reference is a step output we
+# generated ourselves, and it is still routed through `env:` to keep it out
+# of the shell command line.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint-validator:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+      - name: Read pinned ruff version
+        id: ruff
+        run: |
+          # precommit-versions.yaml stores `ruff: v0.15.14`; uvx wants the
+          # bare PyPI version, so strip the leading `v`.
+          v=$(grep '^ruff:' configs/python-strict/precommit-versions.yaml \
+              | awk '{print $2}' | tr -d '"' | sed 's/^v//')
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+      - name: Ruff check
+        env:
+          VER: ${{ steps.ruff.outputs.version }}
+        run: uvx "ruff@$VER" check --config configs/python-strict/ruff.toml scripts/
+      - name: Ruff format --check
+        env:
+          VER: ${{ steps.ruff.outputs.version }}
+        run: uvx "ruff@$VER" format --config configs/python-strict/ruff.toml --check scripts/
+
+  validator-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Aligned fixture should pass
+        # Also exercises the `target-version` allowed-override path: the
+        # aligned fixture deliberately sets target-version to py312 while
+        # canonical is py311.
+        run: python3 scripts/validate_strict_config.py --consumer-root tests/fixtures/aligned
+      - name: Drifted fixture should fail
+        run: |
+          if python3 scripts/validate_strict_config.py --consumer-root tests/fixtures/drifted; then
+            echo "Bug: validator returned 0 on a drifted fixture" >&2
+            exit 1
+          fi
+          echo "OK: validator correctly returned non-zero on drift"
