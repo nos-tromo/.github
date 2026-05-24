@@ -24,3 +24,11 @@ convention = "google"
 strict = true
 ignore_missing_imports = true
 no_incremental = true
+
+# Canonical v2.2+ pins mypy in dev deps (the validator no longer pins it
+# via the pre-commit hook rev). The version must match the `mypy:` entry
+# in configs/python-strict/precommit-versions.yaml.
+[dependency-groups]
+dev = [
+    "mypy==1.19.0",
+]

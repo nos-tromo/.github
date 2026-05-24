@@ -257,8 +257,7 @@ def main() -> int:
         actual_ruff = _extract_precommit_rev(precommit_text, RUFF_PRECOMMIT_REPO)
         if actual_ruff is None:
             drifts.append(
-                f"  [.pre-commit-config.yaml] {RUFF_PRECOMMIT_REPO} hook not found "
-                f"(expected rev: {expected_ruff})"
+                f"  [.pre-commit-config.yaml] {RUFF_PRECOMMIT_REPO} hook not found (expected rev: {expected_ruff})"
             )
         elif actual_ruff != expected_ruff:
             drifts.append(
@@ -281,8 +280,7 @@ def main() -> int:
             )
         if _extract_precommit_rev(precommit_text, MYPY_PRECOMMIT_REPO) is not None:
             drifts.append(
-                f"  [.pre-commit-config.yaml] {MYPY_PRECOMMIT_REPO} hook must be "
-                "removed — mypy is now a local hook"
+                f"  [.pre-commit-config.yaml] {MYPY_PRECOMMIT_REPO} hook must be removed — mypy is now a local hook"
             )
         dev_deps = (
             pyproject.get("dependency-groups", {}).get("dev", [])
