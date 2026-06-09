@@ -1,0 +1,103 @@
+name: claude
+
+# Reusable workflow for MANUAL @claude invocation across the nos-tromo
+# federation (chorus, docint, Nextext, translator, vllm-service, data-plane).
+#
+# Interactive / "tag" mode ONLY — Claude acts solely when a human writes the
+# trigger phrase ("@claude" by default) in an issue, a PR comment, a PR review,
+# or a new issue title/body. There are deliberately NO automatic reviews:
+#   - this workflow exposes no `prompt` input, and consumers never wire a
+#     `pull_request` trigger, so claude-code-action@v1 stays in interactive
+#     mode (supplying a `prompt` is what flips it to unprompted automation);
+#   - the job's `if:` gate is itself manual-only — it matches the trigger
+#     phrase in event text, so even an accidental `pull_request` trigger in a
+#     caller resolves to a skipped job rather than an unsolicited review.
+# For automatic per-PR review, that is a separate opt-in workflow (a
+# `pull_request` trigger + a review `prompt`) — intentionally not provided here.
+#
+# --- How a consumer wires this up -------------------------------------------
+# The comment/issue triggers must live in the CALLER: a reusable workflow
+# cannot declare `issue_comment` triggers that fire in another repo. Drop this
+# into each app repo as .github/workflows/claude.yml:
+#
+#   name: claude
+#   on:
+#     issue_comment:
+#       types: [created]
+#     pull_request_review_comment:
+#       types: [created]
+#     issues:
+#       types: [opened, assigned]
+#     pull_request_review:
+#       types: [submitted]
+#   permissions:            # must be granted by the CALLER — `id-token: write`
+#     contents: write       # in particular is NOT covered by the repo's
+#     pull-requests: write  # "Read and write permissions" default and would
+#     issues: write         # otherwise be capped to none, breaking the OIDC
+#     id-token: write       # exchange for the Claude GitHub App token.
+#     actions: read
+#   jobs:
+#     claude:
+#       uses: nos-tromo/.github/.github/workflows/claude.yml@v2
+#       secrets: inherit    # forwards the org auth secret (see prerequisites)
+#
+# --- Prerequisites (one-time, org-wide) -------------------------------------
+#   1. Install the Claude GitHub App on the org/repos: https://github.com/apps/claude
+#      (grants Contents / Issues / Pull requests read & write to the bot).
+#   2. Add an org-level Actions secret CLAUDE_CODE_OAUTH_TOKEN scoped to these
+#      repos — the token `/install-github-app` provisions for a Claude Max/Pro
+#      subscription. `secrets: inherit` in the caller forwards it.
+#      Using the direct Claude API instead? Forward ANTHROPIC_API_KEY and swap
+#      the auth input — see the action step below.
+#
+# Security note: untrusted comment/issue text (github.event.*.body / .title) is
+# only ever read inside the `if:` expression via contains() — it is never
+# interpolated into a shell command. claude-code-action handles the event
+# payload internally; this workflow runs no `${{ github.event.* }}` in a shell.
+
+on:
+  workflow_call:
+    inputs:
+      trigger_phrase:
+        description: 'Phrase that summons Claude in an issue/PR/comment (default "@claude").'
+        required: false
+        type: string
+        default: '@claude'
+      claude_args:
+        description: 'Extra Claude Code CLI args passed verbatim (e.g. "--model claude-opus-4-1 --max-turns 10").'
+        required: false
+        type: string
+        default: ''
+
+jobs:
+  claude:
+    # Manual-only gate: run solely on a real trigger-phrase mention; skip otherwise.
+    if: |
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, inputs.trigger_phrase)) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, inputs.trigger_phrase)) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, inputs.trigger_phrase)) ||
+      (github.event_name == 'issues' && (contains(github.event.issue.body, inputs.trigger_phrase) || contains(github.event.issue.title, inputs.trigger_phrase)))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write       # push commits / open PRs when asked to implement
+      pull-requests: write  # comment on and update PRs
+      issues: write         # comment on and update issues
+      id-token: write       # OIDC exchange for the Claude GitHub App token
+      actions: read         # read CI results on the PR
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+      - name: Run Claude Code
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          # Claude Max/Pro subscription auth — the token `/install-github-app`
+          # provisions. Forwarded from an org-level secret by `secrets: inherit`.
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Using the direct Claude API instead? Comment the line above and
+          # forward an API key:
+          # anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          trigger_phrase: ${{ inputs.trigger_phrase }}
+          claude_args: ${{ inputs.claude_args }}
