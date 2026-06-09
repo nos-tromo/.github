@@ -20,6 +20,10 @@ strict-mode Python lint/type config that the workflows enforce.
   ([`vllm-service`](https://github.com/nos-tromo/vllm-service),
   [`data-plane`](https://github.com/nos-tromo/data-plane)). yamllint,
   shellcheck, hadolint, and `docker compose config` validation.
+- [`.github/workflows/claude.yml`](.github/workflows/claude.yml) — reusable
+  workflow for **manual** `@claude` invocation (interactive/tag mode) in any
+  consumer repo. Acts only when a human mentions `@claude` in an
+  issue/PR/comment/review; deliberately has **no** automatic per-PR review.
 - [`configs/python-strict/`](configs/python-strict/) — canonical ruff,
   mypy, and pre-commit version configs that Python-app consumers must
   mirror.
@@ -90,6 +94,61 @@ Inputs:
 | `compose-profiles`   | _(empty)_            | Space-separated `--profile` arguments.                                             |
 | `dockerfiles-glob`   | `docker/Dockerfile.*`| Glob for hadolint (fails only on `error`-level findings).                          |
 | `shell-scripts-glob` | `scripts/*.sh`       | Glob for shellcheck.                                                               |
+
+## Using the Claude mention workflow
+
+Turns on Claude's `@claude` mention in a consumer repo — **manual only, no
+automatic reviews**. The comment/issue triggers must live in the caller (a
+reusable workflow can't declare triggers that fire in another repo), so drop
+this into a consumer as `.github/workflows/claude.yml`:
+
+```yaml
+name: claude
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  issues:
+    types: [opened, assigned]
+  pull_request_review:
+    types: [submitted]
+
+# The caller must grant these. id-token: write in particular is NOT covered by
+# a repo's default token permissions, so it must be requested here or the
+# Claude App's OIDC token exchange is capped to none and Claude can't act.
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  id-token: write
+  actions: read
+
+jobs:
+  claude:
+    uses: nos-tromo/.github/.github/workflows/claude.yml@v2
+    secrets: inherit
+```
+
+One-time prerequisites (org-wide):
+
+1. Install the [Claude GitHub App](https://github.com/apps/claude).
+2. Add an org-level `ANTHROPIC_API_KEY` Actions secret scoped to the repos;
+   `secrets: inherit` forwards it into the workflow. (Subscription auth:
+   forward `CLAUDE_CODE_OAUTH_TOKEN` and swap the input — see the workflow
+   header.)
+
+Optional inputs:
+
+| Input            | Default   | Purpose                                                         |
+|------------------|-----------|-----------------------------------------------------------------|
+| `trigger_phrase` | `@claude` | Phrase that summons Claude in an issue/PR/comment.              |
+| `claude_args`    | _(empty)_ | Verbatim Claude Code CLI args, e.g. `--model … --max-turns 10`. |
+
+There is intentionally **no automatic per-PR review**: the workflow exposes no
+`prompt` input and wires no `pull_request` trigger, so `claude-code-action@v1`
+stays in interactive mode. Automatic review would be a separate opt-in
+workflow.
 
 ## Strict-mode Python config
 
