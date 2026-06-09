@@ -133,10 +133,11 @@ jobs:
 One-time prerequisites (org-wide):
 
 1. Install the [Claude GitHub App](https://github.com/apps/claude).
-2. Add an org-level `ANTHROPIC_API_KEY` Actions secret scoped to the repos;
-   `secrets: inherit` forwards it into the workflow. (Subscription auth:
-   forward `CLAUDE_CODE_OAUTH_TOKEN` and swap the input — see the workflow
-   header.)
+2. Add an org-level `CLAUDE_CODE_OAUTH_TOKEN` Actions secret scoped to the
+   repos — the token `/install-github-app` provisions for a Claude Max/Pro
+   subscription. `secrets: inherit` forwards it into the workflow. (Using the
+   direct Claude API instead? Forward `ANTHROPIC_API_KEY` and swap the input —
+   see the workflow header.)
 
 Optional inputs:
 

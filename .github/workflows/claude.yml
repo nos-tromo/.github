@@ -39,14 +39,16 @@ name: claude
 #   jobs:
 #     claude:
 #       uses: nos-tromo/.github/.github/workflows/claude.yml@v2
-#       secrets: inherit    # forwards ANTHROPIC_API_KEY (see prerequisites)
+#       secrets: inherit    # forwards the org auth secret (see prerequisites)
 #
 # --- Prerequisites (one-time, org-wide) -------------------------------------
 #   1. Install the Claude GitHub App on the org/repos: https://github.com/apps/claude
 #      (grants Contents / Issues / Pull requests read & write to the bot).
-#   2. Add an org-level Actions secret ANTHROPIC_API_KEY scoped to these repos.
-#      `secrets: inherit` in the caller forwards it into this workflow.
-#      Subscription auth instead of an API key? See the auth step below.
+#   2. Add an org-level Actions secret CLAUDE_CODE_OAUTH_TOKEN scoped to these
+#      repos — the token `/install-github-app` provisions for a Claude Max/Pro
+#      subscription. `secrets: inherit` in the caller forwards it.
+#      Using the direct Claude API instead? Forward ANTHROPIC_API_KEY and swap
+#      the auth input — see the action step below.
 #
 # Security note: untrusted comment/issue text (github.event.*.body / .title) is
 # only ever read inside the `if:` expression via contains() — it is never
@@ -91,9 +93,11 @@ jobs:
         id: claude
         uses: anthropics/claude-code-action@v1
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          # Subscription auth instead of an API key? Comment the line above and
-          # forward CLAUDE_CODE_OAUTH_TOKEN (set up by `/install-github-app`):
-          # claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Claude Max/Pro subscription auth — the token `/install-github-app`
+          # provisions. Forwarded from an org-level secret by `secrets: inherit`.
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Using the direct Claude API instead? Comment the line above and
+          # forward an API key:
+          # anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           trigger_phrase: ${{ inputs.trigger_phrase }}
           claude_args: ${{ inputs.claude_args }}
