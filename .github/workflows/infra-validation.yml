@@ -102,3 +102,28 @@ jobs:
           FILES: ${{ inputs.compose-files }}
           PROFILES: ${{ inputs.compose-profiles }}
         run: docker compose --env-file .env $FILES $PROFILES config --quiet
+
+  make-common:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Resolve canonical ref
+        id: canonical-ref
+        env:
+          # github.job_workflow_ref points to THIS reusable workflow (repo@ref);
+          # strip up to and including '@' to recover the ref the consumer pinned.
+          # Routed through env: to keep it off the shell command line.
+          WORKFLOW_REF: ${{ github.job_workflow_ref }}
+        run: |
+          ref="${WORKFLOW_REF##*@}"
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+      - name: Checkout canonical .github
+        uses: actions/checkout@v6
+        with:
+          repository: nos-tromo/.github
+          ref: ${{ steps.canonical-ref.outputs.ref }}
+          path: .nos-tromo-github-ref
+      - name: Validate make/common.mk alignment
+        # Skips automatically until the repo vendors make/common.mk; fails only
+        # on a drifted vendored copy.
+        run: python3 .nos-tromo-github-ref/scripts/validate_make_common.py

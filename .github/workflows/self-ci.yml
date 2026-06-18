@@ -69,3 +69,25 @@ jobs:
             exit 1
           fi
           echo "OK: validator correctly returned non-zero on drift"
+
+  make-common-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Aligned fixture should pass
+        # tests/fixtures/mk-aligned/make/common.mk must mirror
+        # configs/make-common/common.mk exactly - this job fails if it drifts,
+        # the same signal a real consumer gets.
+        run: python3 scripts/validate_make_common.py --consumer-root tests/fixtures/mk-aligned
+      - name: Drifted fixture should fail
+        run: |
+          if python3 scripts/validate_make_common.py --consumer-root tests/fixtures/mk-drifted; then
+            echo "Bug: validator returned 0 on a drifted fixture" >&2
+            exit 1
+          fi
+          echo "OK: validator correctly returned non-zero on drift"
+      - name: Absent vendored copy should skip (pass)
+        run: python3 scripts/validate_make_common.py --consumer-root tests/fixtures/mk-absent
