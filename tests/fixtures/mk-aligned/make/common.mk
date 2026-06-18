@@ -13,8 +13,10 @@
 #   VOLUMES          :=                       # external volumes to ensure (empty = none)
 #   COMPOSE_FILE     ?= docker/compose.yaml
 #   COMPOSE_OVERRIDE ?= docker/compose.override.yaml
-#   BUILD_ENV        ?= DOCKER_BUILDKIT=1     # env prefix for build/up/up-dev
-#   UP_FLAGS         ?=                       # extra flags for up/up-dev (e.g. --no-build, -d)
+#   BUILD_ENV        ?= DOCKER_BUILDKIT=1     # env prefix for `build`
+#   UP_ENV           ?=                       # env prefix for `up`/`up-dev` (e.g. DOCKER_BUILDKIT=1)
+#   UP_FLAGS         ?=                       # extra flags for `up`/`up-dev` (e.g. --no-build, -d)
+#   TESTS            ?= yes                    # set to `no` in repos with no pytest suite
 # Each repo keeps its own `help` and any unique targets (migrate, nuke, the -only shapes).
 
 ifndef REPO
@@ -24,7 +26,9 @@ endif
 COMPOSE_FILE     ?= docker/compose.yaml
 COMPOSE_OVERRIDE ?= docker/compose.override.yaml
 BUILD_ENV        ?= DOCKER_BUILDKIT=1
+UP_ENV           ?=
 UP_FLAGS         ?=
+TESTS            ?= yes
 
 # Versioned image tag. Production: read .<repo>-version (written by bundle.sh).
 # Dev: compute YYYY-MM-DD[-<short-sha>]. Override by exporting <REPO_UC>_VERSION.
@@ -38,7 +42,7 @@ export $(VERSION_VAR)
 COMPOSE     := docker compose --env-file .env -f $(COMPOSE_FILE)
 COMPOSE_DEV := docker compose --env-file .env -f $(COMPOSE_FILE) -f $(COMPOSE_OVERRIDE)
 
-.PHONY: network volumes build bundle up up-dev stop down logs pre-commit test
+.PHONY: network volumes build bundle up up-dev stop down logs pre-commit
 
 # Create the external networks this repo joins (one-time per host; idempotent).
 network:
@@ -46,7 +50,10 @@ network:
 
 # Create the external volumes this repo owns (idempotent; no-op when VOLUMES empty).
 volumes:
-	@for v in $(VOLUMES); do docker volume create $$v >/dev/null 2>&1 || true; done
+	@for v in $(VOLUMES); do \
+		docker volume create $$v >/dev/null 2>&1 || true; \
+		printf 'Ensured Docker volume exists: %s\n' "$$v"; \
+	done
 
 build:
 	$(BUILD_ENV) $(COMPOSE) build
@@ -55,10 +62,10 @@ bundle:
 	./scripts/bundle_images.sh
 
 up:
-	$(BUILD_ENV) $(COMPOSE) up $(UP_FLAGS)
+	$(UP_ENV) $(COMPOSE) up $(UP_FLAGS)
 
 up-dev:
-	$(BUILD_ENV) $(COMPOSE_DEV) up $(UP_FLAGS)
+	$(UP_ENV) $(COMPOSE_DEV) up $(UP_FLAGS)
 
 stop:
 	$(COMPOSE) stop
@@ -72,5 +79,8 @@ logs:
 pre-commit:
 	uv run pre-commit run --all-files
 
+ifeq ($(TESTS),yes)
+.PHONY: test
 test:
 	uv run pytest -q
+endif
