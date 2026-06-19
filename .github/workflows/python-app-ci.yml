@@ -96,6 +96,9 @@ jobs:
         # Skips automatically for repos that have not vendored make/common.mk
         # yet (incremental rollout); fails only on a drifted vendored copy.
         run: python3 .nos-tromo-github-ref/scripts/validate_make_common.py
+      - name: Validate scripts/bundle-lib.sh alignment
+        # Same skip-when-absent semantics as make/common.mk.
+        run: python3 .nos-tromo-github-ref/scripts/validate_bundle_lib.py
       - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true

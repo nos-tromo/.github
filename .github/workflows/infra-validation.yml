@@ -127,3 +127,6 @@ jobs:
         # Skips automatically until the repo vendors make/common.mk; fails only
         # on a drifted vendored copy.
         run: python3 .nos-tromo-github-ref/scripts/validate_make_common.py
+      - name: Validate scripts/bundle-lib.sh alignment
+        # Same skip-when-absent semantics as make/common.mk.
+        run: python3 .nos-tromo-github-ref/scripts/validate_bundle_lib.py
