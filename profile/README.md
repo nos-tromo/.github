@@ -52,7 +52,8 @@ flowchart TB
 
 | Repo | What it does |
 |---|---|
-| **[.github](https://github.com/nos-tromo/.github)** | Org-wide CI: reusable GitHub Actions workflows, the canonical strict `ruff`/`mypy` config every consumer must mirror, and the dependabot template. |
+| **[deploy](https://github.com/nos-tromo/deploy)** | Federation lifecycle layer — ordered, health-gated single-host bring-up (inference → state → apps) of the whole stack, delegating to each member's own make/compose. |
+| **[.github](https://github.com/nos-tromo/.github)** | Org-wide CI + shared build glue: reusable GitHub Actions workflows, the canonical strict `ruff`/`mypy` config, and the vendored `make/common.mk` + `bundle-lib.sh` libraries every consumer mirrors — all drift-checked in CI. |
 
 ### Other public projects
 
