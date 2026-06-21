@@ -6,12 +6,21 @@ consumer's ``scripts/bundle-lib.sh`` byte-for-byte against the canonical
 ``configs/bundle/bundle-lib.sh`` in this repo. Like make/common.mk, the
 library is vendored verbatim, so the check is an exact file comparison.
 
-Consumers that have not yet adopted the shared library (no
-``scripts/bundle-lib.sh``) are skipped, so the check can ride in CI during an
-incremental rollout. Flip ``REQUIRE_PRESENT`` to ``True`` once every repo with
-a bundle script has vendored it to turn absence into a failure.
+Adoption is **include-driven**: a repo opts in by shipping a
+``scripts/bundle_images.sh`` wrapper that sources the vendored library
+(``. scripts/bundle-lib.sh``).
 
-Exit 0 on alignment (or skip), 1 on drift. Stdlib-only; Python 3.11+.
+* vendored + sourced   -> drift-checked (must match canonical).
+* missing + sourced    -> failure (the wrapper sources a file it did not
+  vendor; ``make bundle`` would break).
+* missing + no wrapper -> skipped (the repo has no airgap bundle flow and
+  has legitimately not adopted the library, e.g. open-webui, deploy).
+
+Tying the requirement to the opt-in keeps it self-maintaining: a repo that
+adds a bundle wrapper later automatically becomes subject to the check.
+
+Exit 0 on alignment (or skip), 1 on drift or a missing-but-sourced file.
+Stdlib-only; Python 3.11+.
 """
 
 from __future__ import annotations
@@ -21,9 +30,26 @@ import difflib
 import sys
 from pathlib import Path
 
-# Flip to True once every repo with an airgap bundle script vendors
-# scripts/bundle-lib.sh, so a missing vendored copy becomes a failure.
-REQUIRE_PRESENT = False
+
+def _bundle_wrapper_opts_in(consumer_root: Path) -> bool:
+    """Return whether the consumer's bundle wrapper sources bundle-lib.sh.
+
+    A repo opts in by shipping ``scripts/bundle_images.sh`` that sources the
+    vendored ``scripts/bundle-lib.sh``. That opt-in is what makes the vendored
+    library *required*: a repo with no such wrapper has no airgap bundle flow
+    and is legitimately exempt (e.g. open-webui, deploy).
+
+    Args:
+        consumer_root: The consumer repo root to inspect.
+
+    Returns:
+        ``True`` if ``<consumer_root>/scripts/bundle_images.sh`` exists and
+        references ``bundle-lib.sh``, else ``False``.
+    """
+    wrapper = consumer_root / "scripts" / "bundle_images.sh"
+    if not wrapper.is_file():
+        return False
+    return "bundle-lib.sh" in wrapper.read_text()
 
 
 def _unified_diff(consumer_text: str, canonical_text: str, consumer_path: Path) -> list[str]:
@@ -53,12 +79,14 @@ def main() -> int:
     Reads the consumer's ``scripts/bundle-lib.sh`` (rooted at
     ``--consumer-root``, default ``.``) and compares it to the canonical
     ``bundle-lib.sh`` in ``--canonical-dir`` (default ``configs/bundle/``
-    adjacent to this script). A missing vendored file is skipped unless
-    ``REQUIRE_PRESENT`` is set.
+    adjacent to this script). A missing vendored file fails only when the
+    consumer ships a ``scripts/bundle_images.sh`` wrapper that sources it
+    (see :func:`_bundle_wrapper_opts_in`); otherwise it is skipped.
 
     Returns:
         ``0`` if the vendored copy is byte-identical to canonical (or absent
-        and not required); ``1`` on drift or a missing canonical file.
+        and not adopted); ``1`` on drift, a missing-but-sourced file, or a
+        missing canonical file.
     """
     script_dir = Path(__file__).resolve().parent
     default_canonical = script_dir.parent / "configs" / "bundle"
@@ -78,10 +106,19 @@ def main() -> int:
         return 1
 
     if not consumer_file.is_file():
-        if REQUIRE_PRESENT:
-            print(f"error: {consumer_file} missing (scripts/bundle-lib.sh is required)", file=sys.stderr)
+        if _bundle_wrapper_opts_in(args.consumer_root):
+            print(
+                f"error: {args.consumer_root / 'scripts' / 'bundle_images.sh'} sources bundle-lib.sh "
+                f"but {consumer_file} is not vendored.",
+                file=sys.stderr,
+            )
+            print(
+                "To fix: vendor the canonical file verbatim, e.g.\n"
+                "  cp <nos-tromo/.github>/configs/bundle/bundle-lib.sh scripts/bundle-lib.sh",
+                file=sys.stderr,
+            )
             return 1
-        print(f"scripts/bundle-lib.sh not vendored at {consumer_file}; skipping (not yet migrated).")
+        print("scripts/bundle-lib.sh not vendored and no bundle wrapper sources it; skipping (not adopted).")
         return 0
 
     canonical_text = canonical_file.read_text()
@@ -90,7 +127,10 @@ def main() -> int:
         print("scripts/bundle-lib.sh alignment check OK.")
         return 0
 
-    print("scripts/bundle-lib.sh alignment check FAILED - vendored copy drifted from canonical.\n", file=sys.stderr)
+    print(
+        "scripts/bundle-lib.sh alignment check FAILED - vendored copy drifted from canonical.\n",
+        file=sys.stderr,
+    )
     for line in _unified_diff(consumer_text, canonical_text, consumer_file):
         sys.stderr.write(line)
     print(

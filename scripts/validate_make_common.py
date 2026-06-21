@@ -8,25 +8,55 @@ config (which is merged into each consumer's pyproject and so compared
 semantically), common.mk is vendored verbatim, so the check is an exact
 file comparison.
 
-Consumers that have not yet adopted common.mk (no ``make/common.mk``
-present) are skipped, so the check can ride in CI during an incremental
-rollout without failing repos that have not migrated. Flip
-``REQUIRE_PRESENT`` to ``True`` once every repo has vendored the file to
-turn absence into a failure.
+Adoption is **include-driven**: a repo opts in by adding
+``include make/common.mk`` to its ``Makefile``.
 
-Exit 0 on alignment (or skip), 1 on drift. Stdlib-only; Python 3.11+.
+* vendored + included    -> drift-checked (must match canonical).
+* missing + included     -> failure (the Makefile references a file it did
+  not vendor; ``make`` itself would also break).
+* missing + not included -> skipped (the repo runs a bespoke Makefile and
+  has legitimately not adopted common.mk, e.g. data-plane, open-webui).
+
+Tying the requirement to the opt-in keeps it self-maintaining: a repo that
+adopts common.mk later automatically becomes subject to the check, with no
+exemption list to curate.
+
+Exit 0 on alignment (or skip), 1 on drift or a missing-but-included file.
+Stdlib-only; Python 3.11+.
 """
 
 from __future__ import annotations
 
 import argparse
 import difflib
+import re
 import sys
 from pathlib import Path
 
-# Flip to True once every consumer repo vendors make/common.mk (rollout done),
-# so a missing vendored copy becomes a failure instead of a skip.
-REQUIRE_PRESENT = False
+# A repo opts into common.mk with an `include make/common.mk` directive in its
+# Makefile; that opt-in is what makes the vendored copy required.
+_INCLUDE_RE = re.compile(r"^\s*-?include\s+make/common\.mk\b", re.MULTILINE)
+
+
+def _makefile_opts_in(consumer_root: Path) -> bool:
+    """Return whether the consumer's Makefile opts into common.mk.
+
+    A repo opts in by adding an ``include make/common.mk`` directive to its
+    top-level ``Makefile``. That opt-in is what makes the vendored copy
+    *required*: a repo with no such directive runs a bespoke Makefile and is
+    legitimately exempt (e.g. data-plane, open-webui).
+
+    Args:
+        consumer_root: The consumer repo root to inspect.
+
+    Returns:
+        ``True`` if ``<consumer_root>/Makefile`` exists and contains an
+        ``include make/common.mk`` directive, else ``False``.
+    """
+    makefile = consumer_root / "Makefile"
+    if not makefile.is_file():
+        return False
+    return bool(_INCLUDE_RE.search(makefile.read_text()))
 
 
 def _unified_diff(consumer_text: str, canonical_text: str, consumer_path: Path) -> list[str]:
@@ -56,12 +86,14 @@ def main() -> int:
     Reads the consumer's ``make/common.mk`` (rooted at ``--consumer-root``,
     default ``.``) and compares it to the canonical ``common.mk`` in
     ``--canonical-dir`` (default ``configs/make-common/`` adjacent to this
-    script). A missing vendored file is skipped unless ``REQUIRE_PRESENT``
-    is set.
+    script). A missing vendored file fails only when the consumer's Makefile
+    opts in via ``include make/common.mk`` (see :func:`_makefile_opts_in`);
+    otherwise it is skipped.
 
     Returns:
         ``0`` if the vendored copy is byte-identical to canonical (or absent
-        and not required); ``1`` on drift or a missing canonical file.
+        and not adopted); ``1`` on drift, a missing-but-included file, or a
+        missing canonical file.
     """
     script_dir = Path(__file__).resolve().parent
     default_canonical = script_dir.parent / "configs" / "make-common"
@@ -81,10 +113,19 @@ def main() -> int:
         return 1
 
     if not consumer_file.is_file():
-        if REQUIRE_PRESENT:
-            print(f"error: {consumer_file} missing (make/common.mk is required)", file=sys.stderr)
+        if _makefile_opts_in(args.consumer_root):
+            print(
+                f"error: {args.consumer_root / 'Makefile'} has `include make/common.mk` "
+                f"but {consumer_file} is not vendored.",
+                file=sys.stderr,
+            )
+            print(
+                "To fix: vendor the canonical file verbatim, e.g.\n"
+                "  cp <nos-tromo/.github>/configs/make-common/common.mk make/common.mk",
+                file=sys.stderr,
+            )
             return 1
-        print(f"make/common.mk not vendored at {consumer_file}; skipping (not yet migrated).")
+        print("make/common.mk not vendored and not included by the Makefile; skipping (not adopted).")
         return 0
 
     canonical_text = canonical_file.read_text()
@@ -93,7 +134,10 @@ def main() -> int:
         print("make/common.mk alignment check OK.")
         return 0
 
-    print("make/common.mk alignment check FAILED - vendored copy drifted from canonical.\n", file=sys.stderr)
+    print(
+        "make/common.mk alignment check FAILED - vendored copy drifted from canonical.\n",
+        file=sys.stderr,
+    )
     for line in _unified_diff(consumer_text, canonical_text, consumer_file):
         sys.stderr.write(line)
     print(
