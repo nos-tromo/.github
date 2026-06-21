@@ -67,6 +67,28 @@ Common inputs (full schema at the top of the workflow file):
 | `test-env`                | _(empty)_                                            | Multiline `KEY=VALUE` block for apps whose imports require env at module scope (e.g. `translator`'s `OPENAI_API_BASE`). |
 | `pytest-args`             | _(empty)_                                            | Extra args passed verbatim to `pytest`.                                                                            |
 
+### Frontend: pin `@infra/ui` to a tarball URL, never `github:`
+
+A `frontend` consuming the shared design system must reference it as a
+**commit-SHA-pinned codeload tarball URL**, not the `github:` shorthand:
+
+```jsonc
+// frontend/package.json
+"@infra/ui": "https://codeload.github.com/nos-tromo/infra-ui/tar.gz/<commit-sha>"  // correct
+"@infra/ui": "github:nos-tromo/infra-ui#v0.2.1"                                    // wrong — breaks CI
+```
+
+A human `pnpm install` resolves the `github:` form to that same public HTTPS
+tarball, so it looks fine locally. But when Dependabot regenerates
+`pnpm-lock.yaml` for *any* frontend bump, it rewrites the entry to a
+`git@github.com:` SSH resolution, which then fails both jobs: `frontend`
+SSH-clones with no key (`Permission denied (publickey)`) and `docker` has no
+`git` in the `node:*-alpine` builder (`pnpm: not found: git`). The pinned
+tarball leaves no `github:` shorthand to rewrite and installs over HTTPS with
+no key or git binary. Bump it by swapping the commit SHA (`git rev-list -n1
+<tag>` in `infra-ui`); the lockfile `version`/`resolution` are unchanged, so
+the re-lock diff is just the one `specifier` line.
+
 ## Using the infra-validation workflow
 
 In an infra-only consumer (`vllm-service`, `data-plane`):
