@@ -62,6 +62,11 @@ on:
         required: false
         type: string
         default: ''
+      frontend-lint:
+        description: 'Run `pnpm lint` in the frontend job. Enable once the repo vendors the canonical eslint.config.js and passes lint.'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -99,6 +104,11 @@ jobs:
       - name: Validate scripts/bundle-lib.sh alignment
         # Same skip-when-absent semantics as make/common.mk.
         run: python3 .nos-tromo-github-ref/scripts/validate_bundle_lib.py
+      - name: Validate frontend eslint.config.js alignment
+        # Same skip-when-absent semantics; checks <frontend-dir>/eslint.config.js.
+        env:
+          FRONTEND_DIR: ${{ inputs.frontend-dir }}
+        run: python3 .nos-tromo-github-ref/scripts/validate_eslint_config.py --frontend-dir "$FRONTEND_DIR"
       - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
@@ -170,6 +180,9 @@ jobs:
           cache: pnpm
           cache-dependency-path: ${{ inputs.frontend-dir }}/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
+      - name: Lint
+        if: ${{ inputs.frontend-lint }}
+        run: pnpm lint
       - run: pnpm test
       - run: pnpm build
 

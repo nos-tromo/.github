@@ -2,3 +2,7 @@
 .mypy-cache/
 .remember/
 .ruff-cache/
+
+# Python bytecode
+__pycache__/
+*.pyc
