@@ -213,13 +213,28 @@ A few intentional choices worth knowing:
 
 ## Versioning
 
-Consumers reference workflows by tag (`@v2`). Cutting a new tag is the
-release mechanism — when the canonical config changes, the tag bump and
-the consumer mirrored-config update must land together, or the lint job
-in the consumer will fail.
+Workflows are released as immutable minor tags (`v2.1`, `v2.2`, …, `v2.9`)
+with a moving major alias (`v2`) that always points at the latest `v2.x`.
+New consumers should pin the major alias (`@v2`) — as the examples above do —
+so they track minor releases automatically. Pinning an exact minor (`@v2.9`)
+also works: each consumer runs Dependabot's `github-actions` ecosystem, which
+opens a bump PR when a newer tag ships.
 
-Existing tags: `v1`, `v1.0.0`, `v2`. New consumers should pin to the
-latest.
+Cutting a tag is the release mechanism, and it has **two** steps — the second
+is easy to forget and silently strands `@v2` consumers on the old commit:
+
+1. Tag the merge commit with the next minor —
+   `git tag -a v2.10 -m "v2.10: …" && git push origin v2.10`
+2. Move the major alias to the same commit —
+   `git tag -f -a v2 -m "v2: …" && git push origin v2 --force`
+
+Because the `python-app-ci` lint job validates each consumer against the
+strict config that shipped with the tag it runs, a canonical-config change
+and the consumers' mirrored-config updates must land together (see
+[Strict-mode Python config](#strict-mode-python-config)) or the consumers'
+lint jobs fail. The full tag list is on the
+[tags page](https://github.com/nos-tromo/.github/tags); latest is `v2.9`
+(`actions/checkout` v7).
 
 ## Working in this repo
 
