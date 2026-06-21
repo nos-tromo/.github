@@ -41,7 +41,10 @@ export default tseslint.config(
       // ...) flag legitimate TanStack and reset-on-prop-change patterns, so they are
       // intentionally left off until the codebases are ready for them.
       'react-hooks/rules-of-hooks': 'error',
-      'react-hooks/exhaustive-deps': 'warn'
+      'react-hooks/exhaustive-deps': 'warn',
+      // Allow intentionally-unused args via a leading underscore (e.g. `_init`),
+      // a convention already used across the frontends.
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }]
     }
   },
   {
