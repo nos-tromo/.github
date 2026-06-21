@@ -53,6 +53,11 @@ on:
         required: false
         type: string
         default: '9.12.0'
+      run-tests:
+        description: 'Run the pytest matrix job. Set false for lint-only repos with no test suite (e.g. infra repos that only want the strict-config + ruff + mypy lint job). Note: docker-build implies run-tests, since the docker job runs after the test job.'
+        required: false
+        type: boolean
+        default: true
       pytest-args:
         required: false
         type: string
@@ -132,6 +137,9 @@ jobs:
         run: uv run pre-commit run --all-files --show-diff-on-failure
 
   test:
+    # Skipped for lint-only callers (run-tests: false). The lint job above
+    # always runs; this gates only the pytest matrix.
+    if: ${{ inputs.run-tests }}
     runs-on: ubuntu-latest
     needs: lint
     strategy:
