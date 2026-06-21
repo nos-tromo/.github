@@ -112,3 +112,24 @@ jobs:
           echo "OK: validator correctly returned non-zero on drift"
       - name: Absent vendored copy should skip (pass)
         run: python3 scripts/validate_bundle_lib.py --consumer-root tests/fixtures/bundle-absent
+
+  eslint-config-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Aligned fixture should pass
+        # tests/fixtures/eslint-aligned/frontend/eslint.config.js must mirror
+        # configs/frontend-eslint/eslint.config.js exactly - this job fails if it drifts.
+        run: python3 scripts/validate_eslint_config.py --consumer-root tests/fixtures/eslint-aligned
+      - name: Drifted fixture should fail
+        run: |
+          if python3 scripts/validate_eslint_config.py --consumer-root tests/fixtures/eslint-drifted; then
+            echo "Bug: validator returned 0 on a drifted fixture" >&2
+            exit 1
+          fi
+          echo "OK: validator correctly returned non-zero on drift"
+      - name: Absent vendored copy should skip (pass)
+        run: python3 scripts/validate_eslint_config.py --consumer-root tests/fixtures/eslint-absent
