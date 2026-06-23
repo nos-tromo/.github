@@ -1,0 +1,21 @@
+# Canonical pyrefly regime for nos-tromo Python apps (v3+).
+#
+# Mirror this into each consumer's pyproject.toml under [tool.pyrefly] (the
+# [errors] table becomes [tool.pyrefly.errors]). The validate_strict_config.py
+# check in python-app-ci.yml diffs the consumer's [tool.pyrefly] block against
+# this file and fails CI on drift.
+#
+# This is exactly what `pyrefly init` emits when migrating the previous
+# [tool.mypy] strict config, so a consumer can regenerate it mechanically:
+#   uv run pyrefly init pyproject.toml --non-interactive
+#
+# preset = "legacy" is pyrefly's mypy-compatibility preset. ignore-missing-imports
+# = ["*"] is load-bearing — the direct successor to mypy's
+# ignore_missing_imports = true: it keeps untyped third-party libs (Streamlit,
+# the Neo4j driver, llama-index, the OpenAI SDK, etc.) from poisoning
+# first-party checking. Strict applies to code we control.
+preset = "legacy"
+ignore-missing-imports = ["*"]
+
+[errors]
+redundant-cast = "warn"

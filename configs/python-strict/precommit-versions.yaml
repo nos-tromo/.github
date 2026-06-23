@@ -2,12 +2,13 @@
 #
 # - ruff: pinned to a release rev of astral-sh/ruff-pre-commit; consumers
 #   mirror the rev exactly.
-# - mypy: NOT pinned to a rev. Strict mypy needs to see every dep's types
-#   (FastAPI/llama-index/qdrant decorators, base classes, return types) and
-#   pre-commit's isolated env can't keep up with each repo's dep set. The
-#   canonical mypy hook is a *local* hook that runs `uv run mypy` so it
-#   uses the project's venv. Pin the mypy version in your dev deps
-#   (e.g. `mypy==1.19.0`) — the validator checks that pin instead.
+# - pyrefly: NOT pinned to a pre-commit rev. Like mypy before it, pyrefly needs
+#   to see every dep's types (FastAPI/pydantic/OpenAI-SDK decorators, base
+#   classes, return types) and pre-commit's isolated env can't keep up with
+#   each repo's dep set. The canonical pyrefly hook is a *local* hook that runs
+#   `uv run pyrefly check` so it uses the project's venv. Pin the pyrefly
+#   version in your dev deps (e.g. `pyrefly==1.1.1`) — the validator checks
+#   that pin instead.
 
 ruff: v0.15.14
-mypy: "1.19.0"  # checked against pyproject dev deps, not pre-commit rev
+pyrefly: "1.1.1"  # checked against pyproject dev deps, not a pre-commit rev
