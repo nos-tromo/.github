@@ -22,7 +22,7 @@ select = [
 # ANN401 forbids `Any`. In practice it fires constantly on bridges to
 # untyped libraries (Streamlit, llama-index, ML libs without stubs) where
 # typing the seam with anything other than Any costs more than it saves.
-# Strict mypy is the actual rigor here; ANN401 adds noise on top.
+# Strict pyrefly is the actual rigor here; ANN401 adds noise on top.
 ignore = ["ANN401"]
 
 [lint.pydocstyle]

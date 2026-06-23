@@ -12,7 +12,7 @@ strict-mode Python lint/type config that the workflows enforce.
   [`docint`](https://github.com/nos-tromo/docint),
   [`Nextext`](https://github.com/nos-tromo/Nextext),
   [`translator`](https://github.com/nos-tromo/translator)). Runs
-  pre-commit (ruff + mypy via the consumer's own `.pre-commit-config.yaml`),
+  pre-commit (ruff + pyrefly via the consumer's own `.pre-commit-config.yaml`),
   pytest across a Python-version matrix, and optional
   `docker compose build` and React/pnpm frontend jobs.
 - [`.github/workflows/infra-validation.yml`](.github/workflows/infra-validation.yml)
@@ -25,7 +25,7 @@ strict-mode Python lint/type config that the workflows enforce.
   consumer repo. Acts only when a human mentions `@claude` in an
   issue/PR/comment/review; deliberately has **no** automatic per-PR review.
 - [`configs/python-strict/`](configs/python-strict/) — canonical ruff,
-  mypy, and pre-commit version configs that Python-app consumers must
+  pyrefly, and pre-commit version configs that Python-app consumers must
   mirror.
 - [`scripts/validate_strict_config.py`](scripts/validate_strict_config.py)
   — alignment enforcer invoked from the `python-app-ci` workflow.
@@ -192,8 +192,8 @@ Consumers must mirror, exactly:
 1. **`[tool.ruff]` in `pyproject.toml`** ← [`ruff.toml`](configs/python-strict/ruff.toml).
    The only key a consumer may override is `target-version` (each repo
    has a different Python floor).
-2. **`[tool.mypy]` in `pyproject.toml`** ← [`mypy.ini`](configs/python-strict/mypy.ini).
-3. **`rev:` for the ruff and mypy hooks in `.pre-commit-config.yaml`**
+2. **`[tool.pyrefly]` in `pyproject.toml`** ← [`pyrefly.toml`](configs/python-strict/pyrefly.toml).
+3. **`rev:` for the ruff and pyrefly hooks in `.pre-commit-config.yaml`**
    ← [`precommit-versions.yaml`](configs/python-strict/precommit-versions.yaml).
 
 To check alignment locally from a consumer repo:
@@ -207,13 +207,17 @@ drift, with concrete entries on stderr.
 
 A few intentional choices worth knowing:
 
-- `ignore_missing_imports = true` in `mypy.ini` is load-bearing — without
+- `ignore-missing-imports = ["*"]` in `pyrefly.toml` is load-bearing — without
   it, strict mode would fail on every untyped third-party import
   (Streamlit, the Neo4j driver, llama-index, etc.). Strict applies to
   first-party code; transitive untyped seams are out of scope.
 - `ANN401` (forbid `Any`) is ignored in `ruff.toml` for the same reason:
-  bridges to untyped libraries force `Any` constantly, and strict mypy
+  bridges to untyped libraries force `Any` constantly, and strict pyrefly
   is the actual rigor.
+- The canonical regime is `preset = "strict"` — pyrefly's full strict checks.
+  `uv run pyrefly init pyproject.toml --non-interactive` scaffolds a starting
+  `[tool.pyrefly]` block but emits a laxer migration default, so set
+  `preset = "strict"` and mirror the canonical values after scaffolding.
 
 ## Vendored shared files
 
@@ -279,8 +283,8 @@ runs on every PR and push to `main`. It does two things:
    The validator that enforces strict mode must itself pass strict mode.
 2. **Smoke-tests the validator** against fixtures in
    [`tests/fixtures/`](tests/fixtures/): an `aligned` fixture (must
-   return 0; also exercises the `target-version` allowed-override) and
-   a `drifted` fixture (must return non-zero).
+   return 0; also exercises the `target-version` allowed-override and the
+   `[tool.pyrefly]` mirror path) and a `drifted` fixture (must return non-zero).
 
 When anything under `configs/python-strict/` changes, the aligned
 fixture must be updated to mirror it — same drift signal real

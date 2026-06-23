@@ -1,0 +1,15 @@
+# Canonical pyrefly regime for nos-tromo Python apps (v3+).
+#
+# Mirror this into each consumer's pyproject.toml under [tool.pyrefly]. The
+# validate_strict_config.py check in python-app-ci.yml diffs the consumer's
+# [tool.pyrefly] block against this file and fails CI on drift.
+#
+# preset = "strict" enables pyrefly's full strict checks (implicit-any,
+# missing-override-decorator, strict callable subtyping, unused-ignore, …) for
+# maximum first-party rigor — a deliberate choice, stricter than the migration
+# default that `pyrefly init` emits.
+# ignore-missing-imports = ["*"] is load-bearing: it keeps untyped third-party
+# libs (Streamlit, the Neo4j driver, llama-index, the OpenAI SDK, etc.) from
+# poisoning first-party checking. Strict applies to code we control.
+preset = "strict"
+ignore-missing-imports = ["*"]

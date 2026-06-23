@@ -1,0 +1,31 @@
+# Half-migrated smoke-test fixture: the pyrefly regime is correct (preset, pin,
+# hook all mirror canonical) BUT mypy was not removed — a leftover [tool.mypy]
+# block and a stale mypy dev dep remain. The validator must REJECT this (exit
+# non-zero): a half-migration that leaves two type-checkers installed should
+# fail CI, not silently pass. Isolates the mypy-retirement checks (the ruff and
+# pyrefly blocks are deliberately aligned so they are not the reason it fails).
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "D", "ANN", "UP", "RUF"]
+ignore = ["ANN401"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.pyrefly]
+preset = "strict"
+ignore-missing-imports = ["*"]
+
+# Leftover mypy config that the migration should have removed.
+[tool.mypy]
+strict = true
+
+[dependency-groups]
+dev = [
+    "pyrefly==1.1.1",
+    "mypy==1.19.0",
+]

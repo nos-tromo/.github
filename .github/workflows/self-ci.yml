@@ -69,6 +69,16 @@ jobs:
             exit 1
           fi
           echo "OK: validator correctly returned non-zero on drift"
+      - name: Half-migrated fixture should fail (mypy not removed)
+        # Correct pyrefly setup but leftover mypy ([tool.mypy] block, dev dep,
+        # hook): a half-migration must fail CI, not silently pass with two
+        # type-checkers installed.
+        run: |
+          if python3 scripts/validate_strict_config.py --consumer-root tests/fixtures/half-migrated; then
+            echo "Bug: validator returned 0 when mypy was left behind" >&2
+            exit 1
+          fi
+          echo "OK: validator rejects a half-migration (mypy leftover)"
 
   make-common-smoke:
     runs-on: ubuntu-latest

@@ -2,7 +2,7 @@
 
 I build a small **federation** of analysis apps that share one self-hosted, OpenAI-compatible inference stack. Everything is designed to run on-prem or fully **air-gapped** — no data leaves the box, all model weights sit behind a single routed endpoint, and the apps stay stateless so their state lives in exactly one place.
 
-**Built with:** Python · FastAPI · React · Streamlit · Docker Compose · vLLM · LiteLLM · Neo4j · Qdrant · `uv` · strict `ruff` + `mypy`
+**Built with:** Python · FastAPI · React · Streamlit · Docker Compose · vLLM · LiteLLM · Neo4j · Qdrant · `uv` · strict `ruff` + `pyrefly`
 
 ### How it fits together
 
@@ -53,7 +53,7 @@ flowchart TB
 | Repo | What it does |
 |---|---|
 | **[deploy](https://github.com/nos-tromo/deploy)** | Federation lifecycle layer — ordered, health-gated single-host bring-up (inference → state → apps) of the whole stack, delegating to each member's own make/compose. |
-| **[.github](https://github.com/nos-tromo/.github)** | Org-wide CI + shared build glue: reusable GitHub Actions workflows, the canonical strict `ruff`/`mypy` config, and the vendored `make/common.mk` + `bundle-lib.sh` libraries every consumer mirrors — all drift-checked in CI. |
+| **[.github](https://github.com/nos-tromo/.github)** | Org-wide CI + shared build glue: reusable GitHub Actions workflows, the canonical strict `ruff`/`pyrefly` config, and the vendored `make/common.mk` + `bundle-lib.sh` libraries every consumer mirrors — all drift-checked in CI. |
 
 ### Other public projects
 
