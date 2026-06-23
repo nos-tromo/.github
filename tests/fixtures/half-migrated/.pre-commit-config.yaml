@@ -1,0 +1,24 @@
+# Half-migrated: correct ruff + pyrefly hooks, but a leftover mypy local hook
+# that the migration should have removed. The validator must reject this.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.14
+    hooks:
+      - id: ruff-check
+      - id: ruff-format
+  - repo: local
+    hooks:
+      - id: pyrefly
+        name: pyrefly
+        entry: uv run pyrefly check
+        language: system
+        types: [python]
+        require_serial: true
+        pass_filenames: false
+      - id: mypy
+        name: mypy
+        entry: uv run mypy
+        language: system
+        types: [python]
+        require_serial: true
+        pass_filenames: false

@@ -16,6 +16,7 @@
 - **pyrefly runs as a `local` pre-commit hook** (`entry: uv run pyrefly check`), mirroring the existing local-mypy pattern, so it resolves types against the project venv.
 - **Per-repo exclusions go in hook args** (`--project-excludes`), never in `[tool.pyrefly]` — the validator does an exact diff of `[tool.pyrefly]`, so any extra config key fails drift.
 - **The `[tool.pyrefly]` block must match canonical exactly** across all five consumers (the only permitted cross-repo difference remains `[tool.ruff] target-version`, unchanged by this migration).
+- **mypy must be fully removed, and the validator enforces it.** Each consumer must drop its `[tool.mypy]` block, its `mypy==…` dev dependency, and its `uv run mypy` pre-commit hook (then `uv lock`). `validate_strict_config.py` fails CI on any leftover — a half-migration (pyrefly added but mypy left behind) does not pass.
 - **Python version floors are unchanged** and venvs are not interchangeable: chorus 3.12, docint 3.11, Nextext 3.12, translator 3.11, vllm-service 3.11.
 - **CI uses `uv sync --frozen`** — every dev-dep change must commit an updated `uv.lock` in the same PR.
 - **Two-step tag release** (from `.github/README.md` Versioning): cut the immutable tag, then move the major alias with `git tag -f` + `git push --force`. Forgetting step 2 strands consumers.

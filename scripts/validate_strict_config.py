@@ -261,6 +261,22 @@ def main() -> int:
                 f"(found: {[d for d in dev_deps if isinstance(d, str) and d.startswith('pyrefly')]})"
             )
 
+        # mypy must be fully retired. The validator no longer reads [tool.mypy],
+        # so without these guards a half-migration (pyrefly added but mypy left
+        # behind) would silently pass with two type-checkers and two configs.
+        if "mypy" in pyproject.get("tool", {}):
+            drifts.append("  [pyproject.toml] leftover [tool.mypy] block — remove it (pyrefly replaces mypy)")
+        stale_mypy = [
+            d for d in dev_deps if isinstance(d, str) and re.match(r"\s*mypy\s*([=<>!~;\[]|$)", d, re.IGNORECASE)
+        ]
+        if stale_mypy:
+            drifts.append(
+                f"  [pyproject.toml dependency-groups.dev] leftover mypy dependency {stale_mypy} — "
+                "remove it (replaced by pyrefly)"
+            )
+        if "uv run mypy" in precommit_text or "mirrors-mypy" in precommit_text:
+            drifts.append("  [.pre-commit-config.yaml] leftover mypy hook — remove it (replaced by the pyrefly hook)")
+
     if drifts:
         print("Strict-config alignment check FAILED.\n", file=sys.stderr)
         for d in drifts:
@@ -268,7 +284,8 @@ def main() -> int:
         print(
             "\nTo fix: mirror nos-tromo/.github/configs/python-strict/ contents into\n"
             "  - your pyproject.toml ([tool.ruff], [tool.pyrefly], dev pyrefly pin)\n"
-            "  - your .pre-commit-config.yaml (ruff rev + local pyrefly hook running `uv run pyrefly check`)",
+            "  - your .pre-commit-config.yaml (ruff rev + local pyrefly hook running `uv run pyrefly check`)\n"
+            "  - and remove all mypy remnants ([tool.mypy], the mypy dev dep, the mypy hook)",
             file=sys.stderr,
         )
         return 1
