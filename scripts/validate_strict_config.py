@@ -2,8 +2,8 @@
 """Validate that a consumer repo's lint/type-check config mirrors the canonical strict config.
 
 Run from a consumer repo's root (or pass --consumer-root). Compares the
-consumer's pyproject.toml [tool.ruff] and [tool.mypy] blocks against
-configs/python-strict/ruff.toml and configs/python-strict/mypy.ini, and
+consumer's pyproject.toml [tool.ruff] and [tool.pyrefly] blocks against
+configs/python-strict/ruff.toml and configs/python-strict/pyrefly.toml, and
 the consumer's .pre-commit-config.yaml hook revs against
 precommit-versions.yaml.
 
@@ -16,7 +16,6 @@ Exit 0 on alignment, 1 on drift. Requires Python 3.11+ (tomllib).
 from __future__ import annotations
 
 import argparse
-import configparser
 import re
 import sys
 import tomllib
@@ -25,31 +24,6 @@ from typing import Any
 
 ALLOWED_RUFF_OVERRIDES = {"target-version"}
 RUFF_PRECOMMIT_REPO = "https://github.com/astral-sh/ruff-pre-commit"
-MYPY_PRECOMMIT_REPO = "https://github.com/pre-commit/mirrors-mypy"
-
-
-def _coerce_ini_value(raw: str) -> Any:
-    """Coerce a configparser string value to a Python primitive.
-
-    configparser returns every value as a string; this normalizes the
-    canonical mypy.ini values so they compare equal to the real
-    bools/ints loaded from the consumer's pyproject TOML.
-
-    Args:
-        raw: The raw string as read from configparser.
-
-    Returns:
-        ``True``/``False`` for the literal strings (case-insensitive),
-        an ``int`` for any integer literal (including negative),
-        otherwise the stripped string.
-    """
-    stripped = raw.strip()
-    low = stripped.lower()
-    if low in ("true", "false"):
-        return low == "true"
-    if stripped.lstrip("-").isdigit():
-        return int(stripped)
-    return stripped
 
 
 def _flatten(d: dict[str, Any], prefix: str = "") -> dict[str, Any]:
@@ -90,20 +64,17 @@ def _load_canonical_ruff(path: Path) -> dict[str, Any]:
     return _flatten(tomllib.loads(path.read_text()))
 
 
-def _load_canonical_mypy(path: Path) -> dict[str, Any]:
-    """Parse the canonical ``mypy.ini`` ``[mypy]`` section into a typed dict.
+def _load_canonical_pyrefly(path: Path) -> dict[str, Any]:
+    """Parse the canonical ``pyrefly.toml`` into flattened-key form.
 
     Args:
-        path: Filesystem path to the canonical ``mypy.ini``.
+        path: Filesystem path to the canonical ``pyrefly.toml``.
 
     Returns:
-        A dict mapping each option name in the ``[mypy]`` section to a
-        Python-typed value (bool/int/str — see :func:`_coerce_ini_value`).
+        The TOML contents as a single-level dict keyed by dotted table
+        paths (see :func:`_flatten`), e.g. ``errors.redundant-cast``.
     """
-    parser = configparser.ConfigParser()
-    parser.read_string(path.read_text())
-    section = parser["mypy"]
-    return {k: _coerce_ini_value(section[k]) for k in section}
+    return _flatten(tomllib.loads(path.read_text()))
 
 
 def _load_canonical_versions(path: Path) -> dict[str, str]:
@@ -211,7 +182,7 @@ def main() -> int:
     default_canonical = script_dir.parent / "configs" / "python-strict"
 
     p = argparse.ArgumentParser(
-        description="Validate consumer ruff/mypy/pre-commit alignment with canonical strict config.",
+        description="Validate consumer ruff/pyrefly/pre-commit alignment with canonical strict config.",
     )
     p.add_argument("--consumer-root", type=Path, default=Path("."))
     p.add_argument("--canonical-dir", type=Path, default=default_canonical)
@@ -220,14 +191,14 @@ def main() -> int:
     consumer_pyproject = args.consumer_root / "pyproject.toml"
     consumer_precommit = args.consumer_root / ".pre-commit-config.yaml"
     canonical_ruff = args.canonical_dir / "ruff.toml"
-    canonical_mypy = args.canonical_dir / "mypy.ini"
+    canonical_pyrefly = args.canonical_dir / "pyrefly.toml"
     canonical_versions = args.canonical_dir / "precommit-versions.yaml"
 
     required = {
         "consumer pyproject.toml": consumer_pyproject,
         "consumer .pre-commit-config.yaml": consumer_precommit,
         "canonical ruff.toml": canonical_ruff,
-        "canonical mypy.ini": canonical_mypy,
+        "canonical pyrefly.toml": canonical_pyrefly,
         "canonical precommit-versions.yaml": canonical_versions,
     }
     missing = [f"{name} at {path}" for name, path in required.items() if not path.is_file()]
@@ -240,11 +211,11 @@ def main() -> int:
     with consumer_pyproject.open("rb") as f:
         pyproject = tomllib.load(f)
     consumer_ruff = _flatten(pyproject.get("tool", {}).get("ruff", {}))
-    consumer_mypy = pyproject.get("tool", {}).get("mypy", {})
+    consumer_pyrefly = _flatten(pyproject.get("tool", {}).get("pyrefly", {}))
 
     drifts: list[str] = []
     drifts += _diff("tool.ruff", consumer_ruff, _load_canonical_ruff(canonical_ruff), ALLOWED_RUFF_OVERRIDES)
-    drifts += _diff("tool.mypy", consumer_mypy, _load_canonical_mypy(canonical_mypy), set())
+    drifts += _diff("tool.pyrefly", consumer_pyrefly, _load_canonical_pyrefly(canonical_pyrefly), set())
 
     versions = _load_canonical_versions(canonical_versions)
     precommit_text = consumer_precommit.read_text()
@@ -266,32 +237,28 @@ def main() -> int:
                 f"      canonical: {expected_ruff}"
             )
 
-    # mypy is a *local* pre-commit hook running `uv run mypy` so it sees the
-    # project venv (strict mypy needs every dep's types to resolve decorators
-    # and base classes). The mypy version itself is pinned in dev deps.
-    expected_mypy = versions.get("mypy")
-    if not expected_mypy:
-        drifts.append("  [precommit-versions.yaml] canonical missing entry: mypy")
+    # pyrefly is a *local* pre-commit hook running `uv run pyrefly check` so it
+    # sees the project venv (resolving FastAPI/pydantic/etc. types needs the
+    # installed deps). The pyrefly version itself is pinned in dev deps.
+    expected_pyrefly = versions.get("pyrefly")
+    if not expected_pyrefly:
+        drifts.append("  [precommit-versions.yaml] canonical missing entry: pyrefly")
     else:
-        if "uv run mypy" not in precommit_text:
+        if "uv run pyrefly check" not in precommit_text:
             drifts.append(
-                "  [.pre-commit-config.yaml] mypy hook must be a `local` hook with "
-                "`entry: uv run mypy` (so mypy sees the project venv)"
-            )
-        if _extract_precommit_rev(precommit_text, MYPY_PRECOMMIT_REPO) is not None:
-            drifts.append(
-                f"  [.pre-commit-config.yaml] {MYPY_PRECOMMIT_REPO} hook must be removed — mypy is now a local hook"
+                "  [.pre-commit-config.yaml] pyrefly hook must be a `local` hook with "
+                "`entry: uv run pyrefly check` (so pyrefly sees the project venv)"
             )
         dev_deps = (
             pyproject.get("dependency-groups", {}).get("dev", [])
             if isinstance(pyproject.get("dependency-groups"), dict)
             else []
         )
-        expected_pin = f"mypy=={expected_mypy}"
+        expected_pin = f"pyrefly=={expected_pyrefly}"
         if expected_pin not in dev_deps:
             drifts.append(
                 f"  [pyproject.toml dependency-groups.dev] must pin {expected_pin!r} "
-                f"(found: {[d for d in dev_deps if isinstance(d, str) and d.startswith('mypy')]})"
+                f"(found: {[d for d in dev_deps if isinstance(d, str) and d.startswith('pyrefly')]})"
             )
 
     if drifts:
@@ -300,8 +267,8 @@ def main() -> int:
             print(d, file=sys.stderr)
         print(
             "\nTo fix: mirror nos-tromo/.github/configs/python-strict/ contents into\n"
-            "  - your pyproject.toml ([tool.ruff], [tool.mypy], dev mypy pin)\n"
-            "  - your .pre-commit-config.yaml (ruff rev + local mypy hook running `uv run mypy`)",
+            "  - your pyproject.toml ([tool.ruff], [tool.pyrefly], dev pyrefly pin)\n"
+            "  - your .pre-commit-config.yaml (ruff rev + local pyrefly hook running `uv run pyrefly check`)",
             file=sys.stderr,
         )
         return 1

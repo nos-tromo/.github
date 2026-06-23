@@ -1,8 +1,8 @@
 # Aligned smoke-test fixture: ruff hook rev matches
-# configs/python-strict/precommit-versions.yaml, and mypy is a `local` hook
-# (per canonical v2.2+) so it would run against the project venv in a real
+# configs/python-strict/precommit-versions.yaml, and pyrefly is a `local` hook
+# (per canonical v2.3+) so it would run against the project venv in a real
 # consumer. The validator should exit 0 against this fixture; if it doesn't,
-# something has regressed in _extract_precommit_rev or the local-mypy check.
+# something has regressed in _extract_precommit_rev or the local-pyrefly check.
 #
 # When precommit-versions.yaml changes, this file must be updated to match.
 
@@ -14,11 +14,10 @@ repos:
       - id: ruff-format
   - repo: local
     hooks:
-      - id: mypy
-        name: mypy
-        entry: uv run mypy
+      - id: pyrefly
+        name: pyrefly
+        entry: uv run pyrefly check
         language: system
         types: [python]
         require_serial: true
         pass_filenames: false
-        args: ["."]

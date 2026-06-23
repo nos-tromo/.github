@@ -1,5 +1,5 @@
-# Aligned smoke-test fixture: the [tool.ruff] and [tool.mypy] blocks below
-# mirror configs/python-strict/{ruff.toml,mypy.ini} exactly, with one
+# Aligned smoke-test fixture: the [tool.ruff] and [tool.pyrefly] blocks below
+# mirror configs/python-strict/{ruff.toml,pyrefly.toml} exactly, with one
 # deliberate exception — `target-version` is set to py312 to exercise the
 # ALLOWED_RUFF_OVERRIDES path. The validator should exit 0 against this
 # fixture; if it doesn't, that's a regression in the validator (the diff
@@ -20,15 +20,17 @@ ignore = ["ANN401"]
 [tool.ruff.lint.pydocstyle]
 convention = "google"
 
-[tool.mypy]
-strict = true
-ignore_missing_imports = true
-no_incremental = true
+[tool.pyrefly]
+preset = "legacy"
+ignore-missing-imports = ["*"]
 
-# Canonical v2.2+ pins mypy in dev deps (the validator no longer pins it
-# via the pre-commit hook rev). The version must match the `mypy:` entry
+[tool.pyrefly.errors]
+redundant-cast = "warn"
+
+# Canonical v2.3+ pins pyrefly in dev deps (the validator no longer pins it
+# via the pre-commit hook rev). The version must match the `pyrefly:` entry
 # in configs/python-strict/precommit-versions.yaml.
 [dependency-groups]
 dev = [
-    "mypy==1.19.0",
+    "pyrefly==1.1.1",
 ]

@@ -1,7 +1,9 @@
-# Drifted smoke-test fixture: deliberately mismatches canonical on one key
-# (line-length=100 instead of 120). The validator should report drift and
-# exit non-zero against this fixture; if it exits 0, the diff logic in
-# _diff() has regressed.
+# Drifted smoke-test fixture: deliberately mismatches canonical on two keys:
+# 1. line-length=100 instead of 120 (ruff drift).
+# 2. preset="basic" instead of "legacy" (pyrefly drift).
+# Also missing the pyrefly==1.1.1 dev pin (kept stale mypy==1.19.0).
+# The validator should report drift and exit non-zero against this fixture;
+# if it exits 0, the diff logic in _diff() has regressed.
 
 [tool.ruff]
 target-version = "py311"
@@ -14,7 +16,14 @@ ignore = ["ANN401"]
 [tool.ruff.lint.pydocstyle]
 convention = "google"
 
-[tool.mypy]
-strict = true
-ignore_missing_imports = true
-no_incremental = true
+[tool.pyrefly]
+preset = "basic"
+ignore-missing-imports = ["*"]
+
+[tool.pyrefly.errors]
+redundant-cast = "warn"
+
+[dependency-groups]
+dev = [
+    "mypy==1.19.0",
+]
