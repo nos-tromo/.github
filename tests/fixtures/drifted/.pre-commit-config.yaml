@@ -1,5 +1,6 @@
-# Drifted smoke-test fixture: ruff hook is aligned but mypy is on an older
-# rev. The validator should report the mypy drift and exit non-zero.
+# Drifted smoke-test fixture: the pyrefly local hook is absent (still has the
+# old mypy hook instead), so the validator's required `uv run pyrefly check`
+# substring is missing. The validator should exit non-zero.
 
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit

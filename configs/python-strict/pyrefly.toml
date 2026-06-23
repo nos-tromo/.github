@@ -8,7 +8,8 @@
 # A consumer can regenerate the [tool.pyrefly] block mechanically:
 #   uv run pyrefly init pyproject.toml --non-interactive
 #
-# preset = "legacy" is pyrefly's legacy-compatibility preset.
+# preset = "legacy" is pyrefly's lenient, migration-friendly preset; stricter
+# presets are a deliberate later ratchet.
 # ignore-missing-imports = ["*"] is load-bearing: it keeps untyped
 # third-party libs (Streamlit, the Neo4j driver, llama-index, the OpenAI SDK,
 # etc.) from poisoning first-party checking. Strict applies to code we control.

@@ -281,8 +281,8 @@ runs on every PR and push to `main`. It does two things:
    The validator that enforces strict mode must itself pass strict mode.
 2. **Smoke-tests the validator** against fixtures in
    [`tests/fixtures/`](tests/fixtures/): an `aligned` fixture (must
-   return 0; also exercises the `target-version` and `[tool.pyrefly]`
-   allowed-overrides) and a `drifted` fixture (must return non-zero).
+   return 0; also exercises the `target-version` allowed-override and the
+   `[tool.pyrefly]` mirror path) and a `drifted` fixture (must return non-zero).
 
 When anything under `configs/python-strict/` changes, the aligned
 fixture must be updated to mirror it — same drift signal real
