@@ -21,11 +21,8 @@ ignore = ["ANN401"]
 convention = "google"
 
 [tool.pyrefly]
-preset = "legacy"
+preset = "strict"
 ignore-missing-imports = ["*"]
-
-[tool.pyrefly.errors]
-redundant-cast = "warn"
 
 # Canonical v2.3+ pins pyrefly in dev deps (the validator no longer pins it
 # via the pre-commit hook rev). The version must match the `pyrefly:` entry

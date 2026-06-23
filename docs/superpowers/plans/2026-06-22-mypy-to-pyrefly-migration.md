@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - **pyrefly version:** `1.1.1` (verbatim) — pinned in each consumer's `dependency-groups.dev` as `pyrefly==1.1.1` and recorded in `configs/python-strict/precommit-versions.yaml`.
-- **Canonical regime = the `pyrefly init` output** (faithful mypy-strict translation): `preset = "legacy"`, `ignore-missing-imports = ["*"]`, and `[errors] redundant-cast = "warn"`. Ratcheting toward `strict` error-kinds is an explicit **out-of-scope follow-up** (Task 10), not part of this migration.
+- **Canonical regime = `preset = "strict"`** + `ignore-missing-imports = ["*"]` (no `[errors]` overrides) — pyrefly's full strict checks, deliberately stricter than `pyrefly init`'s migration default. The team opted to absorb the strict findings per repo (fix at source or `# pyrefly: ignore[<kind>]`).
 - **`ignore-missing-imports = ["*"]` is load-bearing** — successor to mypy's `ignore_missing_imports = true`; without it, untyped third-party libs poison first-party checking.
 - **pyrefly runs as a `local` pre-commit hook** (`entry: uv run pyrefly check`), mirroring the existing local-mypy pattern, so it resolves types against the project venv.
 - **Per-repo exclusions go in hook args** (`--project-excludes`), never in `[tool.pyrefly]` — the validator does an exact diff of `[tool.pyrefly]`, so any extra config key fails drift.
@@ -20,9 +20,11 @@
 - **CI uses `uv sync --frozen`** — every dev-dep change must commit an updated `uv.lock` in the same PR.
 - **Two-step tag release** (from `.github/README.md` Versioning): cut the immutable tag, then move the major alias with `git tag -f` + `git push --force`. Forgetting step 2 strands consumers.
 
-## Empirical baseline (measured 2026-06-22, pyrefly 1.1.1, `legacy` preset)
+## Empirical baseline (measured 2026-06-22, pyrefly 1.1.1)
 
-All five repos pass mypy clean today. pyrefly `legacy` deltas on that green code: **translator 0, vllm-service 0, Nextext 4, chorus 4, docint 28.** Speed: chorus 7.3s→0.3s, docint 36.4s→1.0s (mypy is cold every run — canonical sets `no_incremental = true`). Airgap wheel confirmed on PyPI: `pyrefly-1.1.1-py3-none-manylinux_2_17_x86_64.whl` (one `py3-none` wheel covers all Python versions). No pydantic-model or FastAPI `Depends()` false positives observed.
+All five repos pass mypy clean today. **Canonical regime is `preset = "strict"`** (the team opted to absorb the findings). Measured strict deltas: **chorus 12, docint 135**; at the laxer `legacy` preset the counts were translator 0, vllm-service 0, Nextext 4, chorus 4, docint 28 — under strict the three small repos will be somewhat higher (discovered per-repo at execution). Speed: chorus 7.3s→0.3s, docint 36.4s→1.0s (mypy is cold every run — canonical sets `no_incremental = true`). Airgap wheel confirmed on PyPI: `pyrefly-1.1.1-py3-none-manylinux_2_17_x86_64.whl` (one `py3-none` wheel covers all Python versions). No pydantic-model or FastAPI `Depends()` false positives observed.
+
+> **Regime note (updated 2026-06-23):** switched legacy → strict. The shipped canonical (`configs/python-strict/pyrefly.toml`) and fixtures are `preset = "strict"` with no `[errors]` table. The literal config blocks inside the already-executed Tasks 1–2 still show the original `legacy` authoring; Global Constraints, the Task 5 template, and the shipped files are the strict source of truth.
 
 ## File Structure
 
@@ -47,7 +49,7 @@ All five repos pass mypy clean today. pyrefly `legacy` deltas on that green code
 - Modify: `configs/python-strict/precommit-versions.yaml`
 
 **Interfaces:**
-- Produces: the canonical regime `{preset="legacy", ignore-missing-imports=["*"], errors.redundant-cast="warn"}` and the version key `pyrefly: "1.1.1"` — consumed by the validator (Task 2) and mirrored by every consumer (Tasks 5–9).
+- Produces: the canonical regime `{preset="strict", ignore-missing-imports=["*"]}` and the version key `pyrefly: "1.1.1"` — consumed by the validator (Task 2) and mirrored by every consumer (Tasks 5–9).
 
 - [ ] **Step 1: Create the canonical pyrefly config**
 
@@ -413,7 +415,7 @@ Expected: two identical SHAs. `v2` is intentionally left untouched (frozen mypy 
 
 ## Task 5: Cut over `translator` (repo: `translator`) — clean template (0 errors)
 
-translator measured **0 pyrefly errors** at `legacy`, so this is the reference cutover with no triage. Run it in `../translator`.
+translator measured **0 errors** at the laxer `legacy` preset; under canonical `strict` expect a small number (TBD — run `pyrefly check` and triage). Still the simplest cutover. Run it in `../translator`.
 
 **Files:**
 - Modify: `pyproject.toml`, `.pre-commit-config.yaml`, `uv.lock`, `.github/workflows/ci.yml`
@@ -435,11 +437,8 @@ with:
 ```toml
 [tool.pyrefly]
 # Mirrors nos-tromo/.github/configs/python-strict/pyrefly.toml. Drift fails CI.
-preset = "legacy"
+preset = "strict"
 ignore-missing-imports = ["*"]
-
-[tool.pyrefly.errors]
-redundant-cast = "warn"
 ```
 and in `dependency-groups.dev`, replace `"mypy==1.19.0",` with `"pyrefly==1.1.1",`.
 
@@ -558,7 +557,7 @@ Expected: `drift exit=0`; CI `python-lint` + `validate` both green.
 
 ## Task 7: Cut over `Nextext` (repo: `Nextext`) — 4 errors + build/legacy excludes
 
-Nextext measured **4 errors** (`bad-argument-type`×3, `unsupported-delete`×1) and its mypy hook excludes `build/` and `legacy/`.
+Nextext measured **4 errors** at `legacy` (`bad-argument-type`×3, `unsupported-delete`×1); strict adds more (TBD at execution). Its mypy hook excludes `build/` and `legacy/`.
 
 **Files:**
 - Modify: `pyproject.toml`, `.pre-commit-config.yaml`, `uv.lock`, `.github/workflows/ci.yml`, plus any source files needing a fix/suppression.
@@ -611,7 +610,7 @@ Expected: `drift exit=0`; CI `lint` + `test` jobs green.
 
 ## Task 8: Cut over `chorus` (repo: `chorus`) — 4 errors + airgap wheelhouse check
 
-chorus measured **4 errors** at `legacy` (including the OpenAI-SDK overload that already carried a now-mislocated `# type: ignore[arg-type]`). chorus also vendors a `uv` wheelhouse for airgap — verify whether the type-checker belongs in it.
+chorus measured **12 errors** at `strict` (legacy was 4; strict adds `missing-override-decorator` and `implicit-any-*`). One OpenAI-SDK overload already carries a now-mislocated `# type: ignore[arg-type]`. chorus also vendors a `uv` wheelhouse for airgap — verify whether the type-checker belongs in it.
 
 **Files:**
 - Modify: `pyproject.toml`, `.pre-commit-config.yaml`, `uv.lock`, `.github/workflows/ci.yml`, source files for the 4 fixes/suppressions, and possibly the airgap bundle inputs.
@@ -660,7 +659,7 @@ Expected: `drift exit=0`; CI `lint` + `test` jobs green.
 
 ## Task 9: Cut over `docint` (repo: `docint`) — 28 errors (heaviest triage)
 
-docint measured **28 errors** at `legacy` (`bad-argument-type`×19, `not-iterable`×3, `missing-attribute`×3, `not-async`×1, `bad-return`×1, `bad-assignment`×1). This is the only task with substantial triage. Note: docint may have unrelated in-progress work on its branch — rebase onto a clean `main` first.
+docint measured **135 errors** at `strict` (legacy was 28; strict adds ~47 `implicit-any-empty-container`, ~43 `missing-override-decorator`, `bad-override`, etc.). The legacy-overlap kinds: `bad-argument-type`×19, `not-iterable`×3, `missing-attribute`×3, `not-async`×1, `bad-return`×1, `bad-assignment`×1. This is the heaviest triage by far. Note: docint may have unrelated in-progress work on its branch — rebase onto a clean `main` first.
 
 **Files:**
 - Modify: `pyproject.toml`, `.pre-commit-config.yaml`, `uv.lock`, `.github/workflows/ci.yml`, and ~10–20 source files for fixes/suppressions.
@@ -710,7 +709,7 @@ Expected: `drift exit=0`; CI `lint` + `test` jobs green. In the PR body, summari
 
 These are deliberately **out of scope** for the migration above but should be tracked.
 
-- [ ] **Ratchet toward "strict":** once all five consumers are green on `legacy`, raise rigor incrementally by enabling pyrefly error-kinds in the canonical `[errors]` table (e.g. `missing-override-decorator`, `implicit-any`) one at a time, each shipped as a `v3.x` minor with the consumers' mirrored updates landing together (same atomic-release rule as today). Strict-preset deltas measured 2026-06-22: chorus 12, docint 135 (dominated by mechanical `@override` and empty-container annotations). Re-run the `pyrefly init`-vs-`strict` comparison before committing to a target.
+- [ ] **Tune the strict regime if needed:** the canonical regime already ships at `preset = "strict"`. If a specific strict error-kind proves too noisy on a repo, prefer per-line `# pyrefly: ignore[<kind>]` over weakening canonical; only adjust the canonical `[errors]` table (shipped as a `v3.x` minor with consumers' mirrored updates landing together) if a kind is undesirable federation-wide.
 - [ ] **Doc sweep:** remove remaining mypy mentions in each consumer's `CLAUDE.md` / `README.md` / `Makefile` comments (counts on 2026-06-22: chorus 11, translator 5, docint 4, Nextext 4, vllm-service 3), and the federation `infra/CLAUDE.md` "Conventions shared across the Python apps" section (which names mypy). These are doc-only and can be a single batch PR per repo.
 - [ ] **Optional CI annotations:** consider `pyrefly check --output-format=github` (or the official `facebook/pyrefly` action) so findings annotate PRs inline. This is additive to the local hook.
 - [ ] **Retire `v2`:** once all five consumers are confirmed on `@v3`, mark the `v2` line deprecated in `README.md` (do not delete the tags — they remain valid frozen references).

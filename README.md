@@ -214,8 +214,10 @@ A few intentional choices worth knowing:
 - `ANN401` (forbid `Any`) is ignored in `ruff.toml` for the same reason:
   bridges to untyped libraries force `Any` constantly, and strict pyrefly
   is the actual rigor.
-- The regime is reproducible via `uv run pyrefly init pyproject.toml --non-interactive`
-  to scaffold a consumer's `[tool.pyrefly]` block before mirroring the canonical values.
+- The canonical regime is `preset = "strict"` — pyrefly's full strict checks.
+  `uv run pyrefly init pyproject.toml --non-interactive` scaffolds a starting
+  `[tool.pyrefly]` block but emits a laxer migration default, so set
+  `preset = "strict"` and mirror the canonical values after scaffolding.
 
 ## Vendored shared files
 
