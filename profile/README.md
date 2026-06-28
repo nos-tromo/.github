@@ -2,7 +2,7 @@
 
 I build a small **federation** of analysis apps that share one self-hosted, OpenAI-compatible inference stack. Everything is designed to run on-prem or fully **air-gapped** — no data leaves the box, all model weights sit behind a single routed endpoint, and the apps stay stateless so their state lives in exactly one place.
 
-**Built with:** Python · FastAPI · React · Streamlit · Docker Compose · vLLM · LiteLLM · Neo4j · Qdrant · `uv` · strict `ruff` + `pyrefly`
+**Built with:** Python · FastAPI · React · Tailwind · Docker Compose · vLLM · LiteLLM · Neo4j · Qdrant · `uv` · strict `ruff` + `pyrefly`
 
 ### How it fits together
 
@@ -46,7 +46,7 @@ flowchart TB
 | **[chorus](https://github.com/nos-tromo/chorus)** | GraphRAG for social-network analysis on Neo4j — versioned Cypher retrieval tools, a natural-language tool-calling agent, entity resolution, and §76 BDSG audit logging. |
 | **[docint](https://github.com/nos-tromo/docint)** | Document-intelligence RAG — FastAPI + React SPA over Qdrant, hybrid & graph retrieval, entity resolution, server-streamed CSV exports. |
 | **[Nextext](https://github.com/nos-tromo/Nextext)** | Transcribe, translate & analyze speech from audio/video — all inference on external endpoints, no local GPU or bundled weights. |
-| **[translator](https://github.com/nos-tromo/translator)** | Self-hosted translation service powered by TranslateGemma — FastAPI API + Streamlit UI, ~100 languages. |
+| **[translator](https://github.com/nos-tromo/translator)** | Self-hosted translation service powered by TranslateGemma — FastAPI API + React SPA, ~100 languages. |
 
 ### Engineering glue
 
@@ -54,6 +54,7 @@ flowchart TB
 |---|---|
 | **[deploy](https://github.com/nos-tromo/deploy)** | Federation lifecycle layer — ordered, health-gated single-host bring-up (inference → state → apps) of the whole stack, delegating to each member's own make/compose. |
 | **[.github](https://github.com/nos-tromo/.github)** | Org-wide CI + shared build glue: reusable GitHub Actions workflows, the canonical strict `ruff`/`pyrefly` config, and the vendored `make/common.mk` + `bundle-lib.sh` libraries every consumer mirrors — all drift-checked in CI. |
+| **[infra-ui](https://github.com/nos-tromo/infra-ui)** | Shared React design system (`@infra/ui`) — dark, minimal Tailwind v4 tokens + UI primitives (Button, Card, Input, Badge, Spinner, Banner, …) the React SPAs consume as a tag-pinned pnpm Git dependency, shipping a committed prebuilt `dist/` for deterministic types across consumers. |
 
 ### Other public projects
 
