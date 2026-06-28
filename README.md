@@ -18,8 +18,10 @@ strict-mode Python lint/type config that the Python-app workflow enforces.
 - [`.github/workflows/infra-validation.yml`](.github/workflows/infra-validation.yml)
   — reusable workflow for the infra repos
   ([`vllm-service`](https://github.com/nos-tromo/vllm-service),
-  [`data-plane`](https://github.com/nos-tromo/data-plane)). yamllint,
-  shellcheck, hadolint, and `docker compose config` validation.
+  [`data-plane`](https://github.com/nos-tromo/data-plane),
+  [`deploy`](https://github.com/nos-tromo/deploy)). yamllint, shellcheck,
+  hadolint, and `docker compose config` validation (the last skipped when the
+  caller passes no compose files, as `deploy` does).
 - [`.github/workflows/node-lib-ci.yml`](.github/workflows/node-lib-ci.yml)
   — reusable workflow for the shared Node/TypeScript library
   ([`infra-ui`](https://github.com/nos-tromo/infra-ui), the `@infra/ui`
@@ -121,7 +123,7 @@ Inputs:
 
 | Input                | Default              | Purpose                                                                            |
 |----------------------|----------------------|------------------------------------------------------------------------------------|
-| `compose-files`      | _(required)_         | Space-separated `-f` arguments for `docker compose config`.                        |
+| `compose-files`      | _(empty)_            | Space-separated `-f` arguments for `docker compose config`. Omit to skip the `compose-config` job (infra repos that own no compose, e.g. `deploy`). |
 | `compose-profiles`   | _(empty)_            | Space-separated `--profile` arguments.                                             |
 | `dockerfiles-glob`   | `docker/Dockerfile.*`| Glob for hadolint (fails only on `error`-level findings).                          |
 | `shell-scripts-glob` | `scripts/*.sh`       | Glob for shellcheck.                                                               |

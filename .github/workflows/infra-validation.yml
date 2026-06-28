@@ -7,9 +7,10 @@ on:
   workflow_call:
     inputs:
       compose-files:
-        description: 'Space-separated -f arguments for `docker compose config`. Example: "-f docker/compose.yaml -f docker/compose.override.yaml".'
-        required: true
+        description: 'Space-separated -f arguments for `docker compose config`. Omit to skip compose validation entirely (for infra repos that own no compose files, e.g. deploy, which only sequences the members'' compose).'
+        required: false
         type: string
+        default: ''
       compose-profiles:
         description: 'Space-separated --profile arguments. Example: "--profile cpu --profile cuda".'
         required: false
@@ -80,6 +81,10 @@ jobs:
           done
 
   compose-config:
+    # Skipped when the caller passes no compose-files — e.g. deploy, which owns
+    # no compose of its own and only sequences the members'. Mirrors the other
+    # jobs here, which already skip when their target files are absent.
+    if: ${{ inputs.compose-files != '' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
