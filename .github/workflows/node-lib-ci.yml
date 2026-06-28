@@ -1,0 +1,100 @@
+name: node-lib-ci
+
+# Reusable workflow for nos-tromo Node/TypeScript libraries (currently infra-ui,
+# the @infra/ui design system). Runs the package's own pnpm quality gates — lint,
+# typecheck, test, build — and can verify that a committed, prebuilt output dir
+# (e.g. dist/) is in sync with source, so a library that ships its build output
+# in git cannot merge a source change that skipped the rebuild.
+#
+# Distinct from python-app-ci.yml (uv/Python apps) and infra-validation.yml
+# (compose/Docker repos): this is for pnpm/TypeScript packages with no Python.
+# The pnpm version is taken from the package's "packageManager" field.
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        required: false
+        type: string
+        default: '20'
+      working-directory:
+        description: 'Package directory (where package.json + pnpm-lock.yaml live).'
+        required: false
+        type: string
+        default: '.'
+      run-lint:
+        description: 'Run `pnpm lint`.'
+        required: false
+        type: boolean
+        default: true
+      run-typecheck:
+        description: 'Run `pnpm typecheck`.'
+        required: false
+        type: boolean
+        default: true
+      run-test:
+        description: 'Run `pnpm test`.'
+        required: false
+        type: boolean
+        default: true
+      run-build:
+        description: 'Run `pnpm build` (implied true when check-dist is set).'
+        required: false
+        type: boolean
+        default: true
+      check-dist:
+        description: 'After build, fail if the committed <dist-dir> differs from a fresh build (for libraries that commit prebuilt output to git).'
+        required: false
+        type: boolean
+        default: false
+      dist-dir:
+        description: 'Output directory checked by check-dist.'
+        required: false
+        type: string
+        default: 'dist'
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@v7
+      # pnpm version comes from the "packageManager" field in package.json.
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: pnpm
+          cache-dependency-path: ${{ inputs.working-directory }}/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - name: Lint
+        if: ${{ inputs.run-lint }}
+        run: pnpm lint
+      - name: Typecheck
+        if: ${{ inputs.run-typecheck }}
+        run: pnpm typecheck
+      - name: Test
+        if: ${{ inputs.run-test }}
+        run: pnpm test
+      - name: Build
+        if: ${{ inputs.run-build || inputs.check-dist }}
+        run: pnpm build
+      - name: Verify committed output dir is in sync with source
+        # `pnpm build` above regenerated the output dir. If that differs from
+        # what's committed (modified tracked files or new untracked output), the
+        # committed copy is stale — fail so it gets rebuilt and committed.
+        if: ${{ inputs.check-dist }}
+        env:
+          DIST_DIR: ${{ inputs.dist-dir }}
+        run: |
+          if [ -n "$(git status --porcelain -- "$DIST_DIR")" ]; then
+            echo "::error::$DIST_DIR is out of sync with source. Run 'pnpm build' and commit $DIST_DIR."
+            git status --porcelain -- "$DIST_DIR"
+            git --no-pager diff -- "$DIST_DIR"
+            exit 1
+          fi

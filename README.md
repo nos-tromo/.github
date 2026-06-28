@@ -1,8 +1,8 @@
 # nos-tromo/.github
 
 Org-wide CI assets for the [nos-tromo](https://github.com/nos-tromo)
-federation: two reusable GitHub Actions workflows and the canonical
-strict-mode Python lint/type config that the workflows enforce.
+federation: three reusable GitHub Actions workflows and the canonical
+strict-mode Python lint/type config that the Python-app workflow enforces.
 
 ## What's here
 
@@ -18,8 +18,15 @@ strict-mode Python lint/type config that the workflows enforce.
 - [`.github/workflows/infra-validation.yml`](.github/workflows/infra-validation.yml)
   — reusable workflow for the infra repos
   ([`vllm-service`](https://github.com/nos-tromo/vllm-service),
-  [`data-plane`](https://github.com/nos-tromo/data-plane)). yamllint,
-  shellcheck, hadolint, and `docker compose config` validation.
+  [`data-plane`](https://github.com/nos-tromo/data-plane),
+  [`deploy`](https://github.com/nos-tromo/deploy)). yamllint, shellcheck,
+  hadolint, and `docker compose config` validation (the last skipped when the
+  caller passes no compose files, as `deploy` does).
+- [`.github/workflows/node-lib-ci.yml`](.github/workflows/node-lib-ci.yml)
+  — reusable workflow for the shared Node/TypeScript library
+  ([`infra-ui`](https://github.com/nos-tromo/infra-ui), the `@infra/ui`
+  design system). Runs pnpm lint, typecheck, test, and build, and optionally
+  verifies a committed prebuilt output dir (`dist/`) is in sync with source.
 - [`.github/workflows/claude.yml`](.github/workflows/claude.yml) — reusable
   workflow for **manual** `@claude` invocation (interactive/tag mode) in any
   consumer repo. Acts only when a human mentions `@claude` in an
@@ -116,10 +123,48 @@ Inputs:
 
 | Input                | Default              | Purpose                                                                            |
 |----------------------|----------------------|------------------------------------------------------------------------------------|
-| `compose-files`      | _(required)_         | Space-separated `-f` arguments for `docker compose config`.                        |
+| `compose-files`      | _(empty)_            | Space-separated `-f` arguments for `docker compose config`. Omit to skip the `compose-config` job (infra repos that own no compose, e.g. `deploy`). |
 | `compose-profiles`   | _(empty)_            | Space-separated `--profile` arguments.                                             |
 | `dockerfiles-glob`   | `docker/Dockerfile.*`| Glob for hadolint (fails only on `error`-level findings).                          |
 | `shell-scripts-glob` | `scripts/*.sh`       | Glob for shellcheck.                                                               |
+
+## Using the node-lib workflow
+
+In the shared Node/TypeScript library (`infra-ui/.github/workflows/ci.yml`):
+
+```yaml
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  ci:
+    uses: nos-tromo/.github/.github/workflows/node-lib-ci.yml@v3
+    with:
+      check-dist: true
+```
+
+Runs `pnpm install --frozen-lockfile`, then lint, typecheck, test, and build.
+The pnpm version comes from the package's `packageManager` field. With
+`check-dist: true`, a final step re-runs `pnpm build` and fails if the committed
+output dir is no longer in sync with source — the guard for a library that ships
+a prebuilt `dist/` in git, as `@infra/ui` does (every app frontend consumes it
+as a commit-SHA-pinned tarball with no install-time rebuild).
+
+Inputs:
+
+| Input               | Default | Purpose                                                                 |
+|---------------------|---------|-------------------------------------------------------------------------|
+| `node-version`      | `20`    | Node version for the run.                                               |
+| `working-directory` | `.`     | Package dir (where `package.json` + `pnpm-lock.yaml` live).             |
+| `run-lint`          | `true`  | Run `pnpm lint`.                                                         |
+| `run-typecheck`     | `true`  | Run `pnpm typecheck`.                                                    |
+| `run-test`          | `true`  | Run `pnpm test`.                                                         |
+| `run-build`         | `true`  | Run `pnpm build` (implied when `check-dist` is set).                     |
+| `check-dist`        | `false` | After build, fail if the committed `dist-dir` drifts from a fresh build. |
+| `dist-dir`          | `dist`  | Output dir checked by `check-dist`.                                      |
 
 ## Using the Claude mention workflow
 
