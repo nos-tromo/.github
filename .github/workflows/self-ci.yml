@@ -138,6 +138,8 @@ jobs:
             exit 1
           fi
           echo "OK: validator correctly failed on sourced-but-absent bundle-lib.sh"
+      - name: bundle_version behavior (override > annotated tag > date+sha)
+        run: bash tests/bundle_version_smoke.sh
 
   eslint-config-smoke:
     runs-on: ubuntu-latest
