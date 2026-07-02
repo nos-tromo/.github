@@ -10,12 +10,16 @@ source "$LIB"
 
 fail() { echo "FAIL: $1" >&2; exit 1; }
 
+_TMP_REPOS=()
+trap 'for d in "${_TMP_REPOS[@]:-}"; do rm -rf "$d"; done' EXIT
+
 make_repo() {
   local d; d="$(mktemp -d)"
   git -C "$d" init -q
   git -C "$d" config user.email t@example.com
   git -C "$d" config user.name test
   git -C "$d" commit -q --allow-empty -m init
+  _TMP_REPOS+=("$d")
   printf '%s' "$d"
 }
 
