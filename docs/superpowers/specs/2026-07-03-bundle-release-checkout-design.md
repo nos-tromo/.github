@@ -261,13 +261,17 @@ consumer to re-vendor in lockstep — same mechanic as prior federation bumps.
    (§3.1) and `configs/make-common/common.mk` (§3.2); add
    `tests/bundle_checkout_smoke.sh` and wire it into `self-ci.yml`; cut a
    `nos-tromo/.github` release.
-2. **Propagate to the 6 image-bundling consumers** — `chorus`, `docint`, `Nextext`,
-   `translator`, `vllm-service`, `data-plane`. One small PR each: re-vendor
+2. **Propagate to the image-bundling consumers.** Five re-vendor **both** files —
+   `chorus`, `docint`, `Nextext`, `translator`, `vllm-service`: re-vendor
    `scripts/bundle-lib.sh` **and** `make/common.mk` verbatim, add the one-line guard to
    `scripts/bundle_images.sh`, and repoint the workflow ref if the rollout uses an
-   immutable pin. Because `common.mk` also changes, both drift checks go red until each
-   PR lands (behaviorally harmless — the new target/function are additive to
-   already-working repos).
+   immutable pin. **`data-plane` is the exception** — it keeps a bespoke Makefile that
+   does not `include make/common.mk` (same class as `open-webui-service`), so it
+   re-vendors `scripts/bundle-lib.sh` **only** + the guard; no `make/common.mk`, no
+   `bundle-dev` target (dev escape hatch: `DATA_PLANE_VERSION_OVERRIDE`). One small PR
+   each. Because `common.mk` also changes, its drift check goes red on the five that
+   vendor it until each PR lands (behaviorally harmless — the additions are
+   backward-compatible).
 3. **Docs (public, neutral language):** `deploy/README.md` release-ritual runbook (§4);
    each shipping repo's `CLAUDE.md` "Release" note (`make bundle` = latest tag,
    `make bundle-dev` = local state); `infra/CLAUDE.md` shared-conventions update.
@@ -300,13 +304,21 @@ in one green PR.
 - `.github/workflows/self-ci.yml` — run the new smoke test.
 - `docs/superpowers/specs/2026-07-03-bundle-release-checkout-design.md` — this doc.
 
-**Each image-bundling consumer (`chorus`, `docint`, `Nextext`, `translator`,
-`vllm-service`, `data-plane`):**
+**`common.mk` consumers (`chorus`, `docint`, `Nextext`, `translator`,
+`vllm-service`):**
 - `scripts/bundle-lib.sh` — re-vendor to match canonical.
 - `make/common.mk` — re-vendor to match canonical.
 - `scripts/bundle_images.sh` — add the one-line dev-guarded checkout call.
 - CI workflow ref — repoint if switching to an immutable pin.
 - `CLAUDE.md` — `bundle` / `bundle-dev` release note.
+
+**Bespoke-Makefile consumer (`data-plane`)** — its Makefile does not
+`include make/common.mk` (same class as `open-webui-service`), so it adopts the
+shared bundle library only:
+- `scripts/bundle-lib.sh` — re-vendor to match canonical.
+- `scripts/bundle_images.sh` — add the one-line dev-guarded checkout call.
+- `CLAUDE.md` + `README.md` — note `make bundle` = latest tag, with
+  `DATA_PLANE_VERSION_OVERRIDE` as the working-tree escape hatch (no `bundle-dev`).
 
 **`deploy`:** `README.md` — release-ritual runbook (neutral language).
 
