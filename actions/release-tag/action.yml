@@ -1,0 +1,72 @@
+name: release-tag
+description: Mint an annotated vX.Y.Z tag from a declared version file, idempotently.
+inputs:
+  version-file:     { description: Path to the version file.,               default: pyproject.toml }
+  version-source:   { description: "pyproject | plain.",                     default: pyproject }
+  tag-prefix:       { description: Tag name prefix.,                         default: v }
+  enforce-increase: { description: Fail if not greater than latest tag.,     default: "true" }
+  dry-run:          { description: Compute/log but do not create the tag.,   default: "false" }
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    - name: Compute version and tag
+      id: compute
+      shell: bash
+      env:
+        VERSION_FILE: ${{ inputs.version-file }}
+        VERSION_SOURCE: ${{ inputs.version-source }}
+        PREFIX: ${{ inputs.tag-prefix }}
+      run: |
+        set -euo pipefail
+        VERSION="$(python "$GITHUB_ACTION_PATH/extract_version.py" \
+          extract --file "$VERSION_FILE" --source "$VERSION_SOURCE")"
+        echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+        echo "tag=${PREFIX}${VERSION}" >> "$GITHUB_OUTPUT"
+        echo "Declared version $VERSION -> tag ${PREFIX}${VERSION}"
+
+    - name: Create annotated tag
+      shell: bash
+      env:
+        TAG: ${{ steps.compute.outputs.tag }}
+        VERSION: ${{ steps.compute.outputs.version }}
+        PREFIX: ${{ inputs.tag-prefix }}
+        ENFORCE: ${{ inputs.enforce-increase }}
+        DRY_RUN: ${{ inputs.dry-run }}
+      run: |
+        set -euo pipefail
+        # Idempotent: no-op if the tag already exists.
+        if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+          echo "::notice::$TAG already exists — no-op."
+          exit 0
+        fi
+        # Anti-downgrade vs the latest tag reachable from HEAD.
+        if [ "$ENFORCE" = "true" ]; then
+          LATEST="$(git describe --abbrev=0 HEAD 2>/dev/null || true)"
+          if [ -n "$LATEST" ]; then
+            set +e
+            python "$GITHUB_ACTION_PATH/extract_version.py" \
+              check-increase --new "$VERSION" --latest "${LATEST#$PREFIX}"
+            rc=$?
+            set -e
+            if [ "$rc" -eq 2 ]; then
+              echo "::error::Cannot compare versions — '$VERSION' or latest tag '$LATEST' is not a clean MAJOR.MINOR.PATCH." >&2
+              exit 1
+            elif [ "$rc" -ne 0 ]; then
+              echo "::error::Declared version $VERSION is not greater than latest tag $LATEST." >&2
+              exit 1
+            fi
+          fi
+        fi
+        if [ "$DRY_RUN" = "true" ]; then
+          echo "::notice::[dry-run] would create annotated tag $TAG and push it."
+          exit 0
+        fi
+        git config user.name  "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git tag -a "$TAG" -m "${GITHUB_REPOSITORY##*/} $TAG"   # ANNOTATED — load-bearing
+        git push origin "$TAG"
+        echo "::notice::Created and pushed annotated tag $TAG."

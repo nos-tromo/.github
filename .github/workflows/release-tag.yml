@@ -1,0 +1,53 @@
+name: release-tag
+
+# Reusable workflow that mints an annotated vX.Y.Z tag from a repo's declared
+# version file on merge to main. Wraps actions/release-tag as a composite action.
+
+on:
+  workflow_call:
+    inputs:
+      version-file:
+        description: 'Path to the version file.'
+        required: false
+        type: string
+        default: pyproject.toml
+      version-source:
+        description: 'pyproject | plain.'
+        required: false
+        type: string
+        default: pyproject
+      tag-prefix:
+        description: 'Tag name prefix.'
+        required: false
+        type: string
+        default: v
+      enforce-increase:
+        description: 'Fail if not greater than latest tag.'
+        required: false
+        type: boolean
+        default: true
+      dry-run:
+        description: 'Compute/log but do not create the tag.'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # full history + tags for describe / existence check
+      - uses: nos-tromo/.github/actions/release-tag@v3
+        with:
+          version-file: ${{ inputs.version-file }}
+          version-source: ${{ inputs.version-source }}
+          tag-prefix: ${{ inputs.tag-prefix }}
+          enforce-increase: ${{ inputs.enforce-increase }}
+          dry-run: ${{ inputs.dry-run }}
