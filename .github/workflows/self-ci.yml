@@ -5,14 +5,22 @@ name: self-ci
 # file, nothing would lint or test the validator script that gatekeeps every
 # consumer's strict-mode regime.
 #
-# Two jobs:
-#   lint-validator   — runs `ruff check` and `ruff format --check` against
-#                      scripts/ using the canonical strict config, pinned to
-#                      the same ruff version consumers use (read out of
-#                      precommit-versions.yaml so there's one source of truth).
-#   validator-smoke  — runs the validator against an aligned fixture (must
-#                      exit 0) and a drifted fixture (must exit non-zero).
-#                      Catches regressions in the validator itself.
+# Jobs:
+#   lint-validator      — `ruff check` + `ruff format --check` against scripts/
+#                         using the canonical strict config, pinned to the same
+#                         ruff version consumers use (read out of
+#                         precommit-versions.yaml so there's one source of truth).
+#   validator-smoke     — validate_strict_config.py vs aligned (must exit 0),
+#                         drifted (non-zero), and half-migrated (non-zero)
+#                         fixtures. Catches regressions in the validator itself.
+#   make-common-smoke   — validate_make_common.py vs its aligned/drifted/absent/
+#                         included-but-absent fixtures.
+#   bundle-lib-smoke    — validate_bundle_lib.py vs its fixtures, plus the
+#                         bundle_version / bundle_checkout_release behavior scripts.
+#   eslint-config-smoke — validate_eslint_config.py vs its aligned/drifted/absent
+#                         fixtures.
+#   release-tag-unit    — pytest suite for actions/release-tag/extract_version.py
+#                         (the version extractor + anti-downgrade comparator).
 #
 # Security note: no step interpolates untrusted user input from
 # github.event.*; the only `${{ ... }}` reference is a step output we
@@ -163,3 +171,17 @@ jobs:
           echo "OK: validator correctly returned non-zero on drift"
       - name: Absent vendored copy should skip (pass)
         run: python3 scripts/validate_eslint_config.py --consumer-root tests/fixtures/eslint-absent
+
+  release-tag-unit:
+    # Unit tests for actions/release-tag/extract_version.py — the version
+    # extractor and anti-downgrade comparator the release-tag action depends on.
+    # Nothing else in the repo exercises them, so without this job the action
+    # would ship untested. Run via uv with an ephemeral pytest (the module is
+    # stdlib-only); pin Python 3.11 to match the action's own runtime.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+      - name: Pytest
+        working-directory: actions/release-tag
+        run: uv run --python 3.11 --with pytest python -m pytest -q
