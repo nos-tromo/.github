@@ -1,5 +1,5 @@
 import pytest
-from extract_version import extract, main
+from extract_version import extract, is_increase, main
 
 
 def _write(tmp_path, name, content):
@@ -30,14 +30,17 @@ def test_extract_rejects_non_semver(tmp_path):
         extract(f, "plain")
 
 
+def test_extract_unknown_source(tmp_path):
+    f = _write(tmp_path, "VERSION", "1.2.3\n")
+    with pytest.raises(ValueError):
+        extract(f, "bogus")
+
+
 def test_cli_extract(tmp_path, capsys):
     f = _write(tmp_path, "pyproject.toml", '[project]\nversion = "3.4.5"\n')
     rc = main(["extract", "--file", f, "--source", "pyproject"])
     assert rc == 0
     assert capsys.readouterr().out.strip() == "3.4.5"
-
-
-from extract_version import is_increase
 
 
 def test_is_increase():

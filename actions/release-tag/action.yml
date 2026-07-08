@@ -16,13 +16,17 @@ runs:
     - name: Compute version and tag
       id: compute
       shell: bash
+      env:
+        VERSION_FILE: ${{ inputs.version-file }}
+        VERSION_SOURCE: ${{ inputs.version-source }}
+        PREFIX: ${{ inputs.tag-prefix }}
       run: |
         set -euo pipefail
         VERSION="$(python "$GITHUB_ACTION_PATH/extract_version.py" \
-          extract --file '${{ inputs.version-file }}' --source '${{ inputs.version-source }}')"
+          extract --file "$VERSION_FILE" --source "$VERSION_SOURCE")"
         echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-        echo "tag=${{ inputs.tag-prefix }}$VERSION" >> "$GITHUB_OUTPUT"
-        echo "Declared version $VERSION -> tag ${{ inputs.tag-prefix }}$VERSION"
+        echo "tag=${PREFIX}${VERSION}" >> "$GITHUB_OUTPUT"
+        echo "Declared version $VERSION -> tag ${PREFIX}${VERSION}"
 
     - name: Create annotated tag
       shell: bash
@@ -43,8 +47,15 @@ runs:
         if [ "$ENFORCE" = "true" ]; then
           LATEST="$(git describe --abbrev=0 HEAD 2>/dev/null || true)"
           if [ -n "$LATEST" ]; then
-            if ! python "$GITHUB_ACTION_PATH/extract_version.py" \
-                 check-increase --new "$VERSION" --latest "${LATEST#$PREFIX}"; then
+            set +e
+            python "$GITHUB_ACTION_PATH/extract_version.py" \
+              check-increase --new "$VERSION" --latest "${LATEST#$PREFIX}"
+            rc=$?
+            set -e
+            if [ "$rc" -eq 2 ]; then
+              echo "::error::Cannot compare versions — '$VERSION' or latest tag '$LATEST' is not a clean MAJOR.MINOR.PATCH." >&2
+              exit 1
+            elif [ "$rc" -ne 0 ]; then
               echo "::error::Declared version $VERSION is not greater than latest tag $LATEST." >&2
               exit 1
             fi
