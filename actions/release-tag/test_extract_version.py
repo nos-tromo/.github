@@ -35,3 +35,18 @@ def test_cli_extract(tmp_path, capsys):
     rc = main(["extract", "--file", f, "--source", "pyproject"])
     assert rc == 0
     assert capsys.readouterr().out.strip() == "3.4.5"
+
+
+from extract_version import is_increase
+
+
+def test_is_increase():
+    assert is_increase("1.1.0", "1.0.1")
+    assert is_increase("2.0.0", "1.9.9")
+    assert not is_increase("1.0.1", "1.0.1")   # equal is not an increase
+    assert not is_increase("1.0.0", "1.0.1")   # downgrade
+
+
+def test_cli_check_increase():
+    assert main(["check-increase", "--new", "1.1.0", "--latest", "1.0.0"]) == 0
+    assert main(["check-increase", "--new", "1.0.0", "--latest", "1.0.0"]) == 1

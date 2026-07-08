@@ -46,12 +46,30 @@ def extract(version_file: str, source: str) -> str:
     return version
 
 
+def _core(version: str) -> tuple[int, int, int]:
+    m = SEMVER_RE.match(version)
+    if not m:
+        raise ValueError(f"{version!r} is not a MAJOR.MINOR.PATCH version")
+    return int(m.group(1)), int(m.group(2)), int(m.group(3))
+
+
+def is_increase(new: str, latest: str) -> bool:
+    """True iff `new`'s (major, minor, patch) is strictly greater than `latest`'s.
+
+    Pre-release/build suffixes are ignored — the federation tags plain vX.Y.Z.
+    """
+    return _core(new) > _core(latest)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="cmd", required=True)
     p_ex = sub.add_parser("extract")
     p_ex.add_argument("--file", required=True)
     p_ex.add_argument("--source", required=True, choices=["pyproject", "plain"])
+    p_ci = sub.add_parser("check-increase")
+    p_ci.add_argument("--new", required=True)
+    p_ci.add_argument("--latest", required=True)
     args = parser.parse_args(argv)
 
     if args.cmd == "extract":
@@ -61,6 +79,13 @@ def main(argv: list[str] | None = None) -> int:
             print(f"error: {exc}", file=sys.stderr)
             return 2
         return 0
+    if args.cmd == "check-increase":
+        try:
+            ok = is_increase(args.new, args.latest)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        return 0 if ok else 1
     return 2
 
 
