@@ -19,6 +19,7 @@ flowchart TB
   subgraph Platform["Self-hosted platform"]
     vllm["vllm-service<br/>routed inference · LiteLLM"]
     data["data-plane<br/>Neo4j + Qdrant"]
+    obs["obs-plane<br/>Prometheus · Grafana · Loki"]
   end
 
   chorus -->|inference-net| vllm
@@ -29,6 +30,9 @@ flowchart TB
 
   chorus -->|data-net| data
   docint -->|data-net| data
+
+  obs -.->|scrapes| vllm
+  obs -.->|scrapes| data
 ```
 
 ### Platform
@@ -37,6 +41,7 @@ flowchart TB
 |---|---|
 | **[vllm-service](https://github.com/nos-tromo/vllm-service)** | One LiteLLM-fronted, OpenAI-compatible endpoint multiplexing chat, embeddings, rerank, NER (GLiNER), CLIP, Whisper ASR, diarization & VAD — with CPU-only single-service shapes and offline bundles for air-gapped hosts. |
 | **[data-plane](https://github.com/nos-tromo/data-plane)** | Stateful backbone: owns the Neo4j (graph + native vectors) and Qdrant (document vectors) volumes so the apps stay disposable. |
+| **[obs-plane](https://github.com/nos-tromo/obs-plane)** | Airgap-first observability plane — Prometheus, Grafana, Loki and black-box health probes over the whole federation, all pulled digest-pinned images, dashboards and alert rules provisioned from files, no runtime fetching or phone-home. |
 | **[open-webui-service](https://github.com/nos-tromo/open-webui-service)** | Open WebUI chat frontend, deployed against the shared inference stack. |
 
 ### Applications
@@ -52,7 +57,7 @@ flowchart TB
 
 | Repo | What it does |
 |---|---|
-| **[deploy](https://github.com/nos-tromo/deploy)** | Federation lifecycle layer — ordered, health-gated single-host bring-up (inference → state → apps) of the whole stack, delegating to each member's own make/compose. |
+| **[deploy](https://github.com/nos-tromo/deploy)** | Federation lifecycle layer — ordered, health-gated single-host bring-up (inference → state → obs → apps) of the whole stack, delegating to each member's own make/compose. |
 | **[.github](https://github.com/nos-tromo/.github)** | Org-wide CI + shared build glue: reusable GitHub Actions workflows, the canonical strict `ruff`/`pyrefly` config, and the vendored `make/common.mk` + `bundle-lib.sh` libraries every consumer mirrors — all drift-checked in CI. |
 | **[infra-ui](https://github.com/nos-tromo/infra-ui)** | Shared React design system (`@infra/ui`) — dark, minimal Tailwind v4 tokens + UI primitives (Button, Card, Input, Badge, Spinner, Banner, …) the React SPAs consume as a tag-pinned pnpm Git dependency, shipping a committed prebuilt `dist/` for deterministic types across consumers. |
 
