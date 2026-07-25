@@ -14,7 +14,8 @@ name: self-ci
 #                         drifted (non-zero), and half-migrated (non-zero)
 #                         fixtures. Catches regressions in the validator itself.
 #   make-common-smoke   — validate_make_common.py vs its aligned/drifted/absent/
-#                         included-but-absent fixtures.
+#                         included-but-absent fixtures, plus the `build` target's
+#                         version-persistence behavior script.
 #   bundle-lib-smoke    — validate_bundle_lib.py vs its fixtures, plus the
 #                         bundle_version / bundle_checkout_release behavior scripts.
 #   eslint-config-smoke — validate_eslint_config.py vs its aligned/drifted/absent
@@ -117,6 +118,8 @@ jobs:
             exit 1
           fi
           echo "OK: validator correctly failed on included-but-absent common.mk"
+      - name: build persists the built tag (override > fresh date+sha; failed build leaves the file untouched)
+        run: bash tests/build_persist_smoke.sh
 
   bundle-lib-smoke:
     runs-on: ubuntu-latest
