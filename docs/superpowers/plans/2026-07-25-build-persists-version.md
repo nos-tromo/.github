@@ -23,7 +23,8 @@
 
 **Files (the `.github` repo in the infra workspace, branch `fix/build-persists-version`):**
 - Modify: `configs/make-common/common.mk` (VERSION block comment + new `BUILD_VERSION` + `build` recipe)
-- Inspect (extend only if a harness already covers common.mk recipes): `.github/workflows/self-ci.yml`
+- Modify: `tests/fixtures/mk-aligned/make/common.mk` — MUST mirror canonical byte-for-byte (repo invariant: fixtures mirror canonical; self-ci's aligned-fixture validator run fails otherwise). Check whether other mk-* fixtures embed the old build recipe and update only those that must stay aligned (drifted fixtures stay drifted).
+- Create: `tests/build_persist_smoke.sh` (bash smoke test, following `tests/bundle_version_smoke.sh`'s style) + wire it into `.github/workflows/self-ci.yml` alongside the existing bash smoke jobs
 
 **Interfaces:**
 - Produces: the canonical file content that Tasks 2–4 copy/verify verbatim; `BUILD_VERSION` (make var), persisted file `.$(REPO)-version`.
@@ -67,8 +68,9 @@ Notes for the implementer: `$(origin)` returns `environment`, `environment overr
 - [ ] **Step 3: Sanity-check with a scratch harness.** In the scratchpad (NOT in the repo), create a minimal consumer and exercise the semantics with `make -n`/fake compose:
 
 ```bash
-SCRATCH=$(mktemp -d)   # or the session scratchpad && mkdir -p $SCRATCH/make && cd $SCRATCH
-cp ../../.github/configs/make-common/common.mk make/
+CANON="$PWD/configs/make-common/common.mk"   # run from the .github repo root
+SCRATCH=$(mktemp -d) && mkdir -p "$SCRATCH/make" && cd "$SCRATCH"
+cp "$CANON" make/
 printf 'REPO := demo\nNETWORKS :=\ninclude make/common.mk\n' > Makefile
 git init -q . && git commit -q --allow-empty -m x   # so rev-parse works
 printf '#!/bin/sh\necho FAKE-COMPOSE "$@"\n' > docker && chmod +x docker  # not used; use make -n instead
@@ -82,7 +84,7 @@ rm -rf $SCRATCH
 
 Expected outcomes as annotated. If `$(origin)` handling misbehaves, fix the filter, not the spec.
 
-- [ ] **Step 4: self-ci check.** Read `.github/workflows/self-ci.yml`: if it contains behavioral tests for common.mk recipes (it does for `bundle_version` in bundle-lib), add one analogous step exercising the Step 3 semantics (fresh-ignores-stale-file, override-wins, file-written-on-success can be tested with a stub compose via PATH shim); if the existing harness only covers bundle-lib.sh, add the new step alongside it following its style. Keep it self-contained and fast.
+- [ ] **Step 4: fixture mirror + smoke test.** (a) `cp configs/make-common/common.mk tests/fixtures/mk-aligned/make/common.mk` and run `python3 scripts/validate_make_common.py --consumer-root tests/fixtures/mk-aligned` → exit 0. (b) Write `tests/build_persist_smoke.sh` in the style of `tests/bundle_version_smoke.sh`: a temp-dir consumer (`REPO := demo`, git-inited) with a PATH shim for `docker` that logs its argv and succeeds; assert (1) `make build` writes `.demo-version` matching `^\d{4}-\d{2}-\d{2}(-[0-9a-f]{7,})?$` and the shim saw that tag in its environment; (2) a pre-seeded stale `.demo-version` is ignored and overwritten; (3) `DEMO_VERSION=9.9.9 make build` builds and persists `9.9.9`; (4) a failing shim (exit 1) leaves the pre-existing file untouched. Run it: `bash tests/build_persist_smoke.sh` → pass. (c) Wire it into `self-ci.yml` next to the existing bash smoke steps.
 
 - [ ] **Step 5: Commit + PR.**
 
@@ -122,8 +124,16 @@ CI green; do not merge.
 
 **Files:** none — tag only, after the canonical PR is merged.
 
-- [ ] **Step 1:** `cd /Users/himarc/dev/nos-tromo/infra/.github && git switch main && git pull --ff-only`; confirm the merge landed (`git log --oneline -2` shows the #36 commit).
-- [ ] **Step 2:** `git tag -a v3.9 -m "v3.9: common.mk build persists the built tag to .<repo>-version (#36)" && git push origin v3.9` — matching the repo's hand-annotated cadence (see `git tag -n1 v3.8`).
+- [ ] **Step 1:** In the `.github` repo root: `git switch main && git pull --ff-only`; confirm the merge landed (`git log --oneline -2` shows the #36 commit).
+- [ ] **Step 2 (two-step release — BOTH steps, per this repo's CLAUDE.md):**
+
+```bash
+git tag -a v3.9 -m "v3.9: common.mk build persists the built tag to .<repo>-version (#36)"
+git push origin v3.9
+git tag -f -a v3 -m "v3 -> v3.9" && git push origin v3 --force
+```
+
+Forgetting the alias move strands `@v3` consumers on the old commit — AND the vendor-wave PRs would fail their ref-locked drift check (consumers validate against the canonical file at the ref they pin). Corollary: the moment `v3` moves, the five consumers' main branches are drift-stale until their vendor PRs merge — proceed to Task 4 immediately and tell the user the wave is time-sensitive to merge.
 
 ---
 
