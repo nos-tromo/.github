@@ -1,13 +1,19 @@
 > **nos-tromo** — self-hosted NLP & OSINT tooling: transcription, translation, document and social-network intelligence, all running on hardware you control.
 
-I build a small **federation** of analysis apps that share one self-hosted, OpenAI-compatible inference stack. Everything is designed to run on-prem or fully **air-gapped** — no data leaves the box, all model weights sit behind a single routed endpoint, and the apps stay stateless so their state lives in exactly one place.
+I build a small **federation** of analysis apps that share one self-hosted, OpenAI-compatible inference stack. Everything is designed to run on-prem or fully **air-gapped** — no data leaves the box, all model weights sit behind a single routed endpoint, the apps stay stateless so their state lives in exactly one place, and users reach every app through a single authenticated gateway.
 
-**Built with:** Python · FastAPI · React · Tailwind · Docker Compose · vLLM · LiteLLM · Neo4j · Qdrant · `uv` · strict `ruff` + `pyrefly`
+**Built with:** Python · FastAPI · React · Tailwind · Docker Compose · vLLM · LiteLLM · Neo4j · Qdrant · Caddy · Authelia · `uv` · strict `ruff` + `pyrefly`
 
 ### How it fits together
 
 ```mermaid
 flowchart TB
+  users(["Users"])
+
+  subgraph Edge["Edge"]
+    edge["edge-plane<br/>Caddy + Authelia · TLS · SSO"]
+  end
+
   subgraph Apps["Applications"]
     chorus["chorus<br/>social-network GraphRAG"]
     docint["docint<br/>document RAG"]
@@ -22,6 +28,15 @@ flowchart TB
     obs["obs-plane<br/>Prometheus · Grafana · Loki"]
   end
 
+  users -->|HTTPS| edge
+
+  edge -->|edge-net| chorus
+  edge -->|edge-net| docint
+  edge -->|edge-net| nextext
+  edge -->|edge-net| translator
+  edge -->|edge-net| webui
+  edge -->|edge-net · Grafana| obs
+
   chorus -->|inference-net| vllm
   docint -->|inference-net| vllm
   nextext -->|inference-net| vllm
@@ -35,6 +50,8 @@ flowchart TB
   obs -.->|scrapes| data
 ```
 
+Three network seams keep the tiers apart — `inference-net` (apps ↔ inference), `data-net` (apps ↔ state), `edge-net` (gateway ↔ app frontends) — and the gateway joins only the last of them.
+
 ### Platform
 
 | Repo | What it does |
@@ -42,6 +59,7 @@ flowchart TB
 | **[vllm-service](https://github.com/nos-tromo/vllm-service)** | One LiteLLM-fronted, OpenAI-compatible endpoint multiplexing chat, embeddings, rerank, NER (GLiNER), CLIP, Whisper ASR, diarization & VAD — with CPU-only single-service shapes and offline bundles for air-gapped hosts. |
 | **[data-plane](https://github.com/nos-tromo/data-plane)** | Stateful backbone: owns the Neo4j (graph + native vectors) and Qdrant (document vectors) volumes so the apps stay disposable. |
 | **[obs-plane](https://github.com/nos-tromo/obs-plane)** | Airgap-first observability plane — Prometheus, Grafana, Loki and black-box health probes over the whole federation, all pulled digest-pinned images, dashboards and alert rules provisioned from files, no runtime fetching or phone-home. |
+| **[edge-plane](https://github.com/nos-tromo/edge-plane)** | The federation's single entry point — Caddy (TLS, path routing) + Authelia (forward-auth SSO, TOTP, file-backed users), the one member that publishes ports at all. Authenticates every request and injects the trusted `X-Auth-User` identity header the apps consume. |
 | **[open-webui-service](https://github.com/nos-tromo/open-webui-service)** | Open WebUI chat frontend, deployed against the shared inference stack. |
 
 ### Applications
@@ -57,11 +75,11 @@ flowchart TB
 
 | Repo | What it does |
 |---|---|
-| **[deploy](https://github.com/nos-tromo/deploy)** | Federation lifecycle layer — ordered, health-gated single-host bring-up (inference → state → obs → apps) of the whole stack, delegating to each member's own make/compose. |
+| **[deploy](https://github.com/nos-tromo/deploy)** | Federation lifecycle layer — ordered, health-gated single-host bring-up (inference → state → obs → apps → edge) of the whole stack, delegating to each member's own make/compose. |
 | **[.github](https://github.com/nos-tromo/.github)** | Org-wide CI + shared build glue: reusable GitHub Actions workflows, the canonical strict `ruff`/`pyrefly` config, and the vendored `make/common.mk` + `bundle-lib.sh` libraries every consumer mirrors — all drift-checked in CI. |
 | **[infra-ui](https://github.com/nos-tromo/infra-ui)** | Shared React design system (`@infra/ui`) — dark, minimal Tailwind v4 tokens + UI primitives (Button, Card, Input, Badge, Spinner, Banner, …) the React SPAs consume as a tag-pinned pnpm Git dependency, shipping a committed prebuilt `dist/` for deterministic types across consumers. |
 
 ### Other public projects
 
 - **[babel](https://github.com/nos-tromo/babel)** — Arabic dialect identification.
-- **[hatespeech-detect](https://github.com/nos-tromo/hatespeech-detect)** — hate-speech classification workflow.
+- **[txt2pdf](https://github.com/nos-tromo/txt2pdf)** — text-to-PDF converter with full Unicode support.
