@@ -107,7 +107,7 @@ logs:
 	$(COMPOSE) logs -f --tail=100
 
 pre-commit:
-	uv run pre-commit run --all-files
+	uv run --locked pre-commit run --all-files
 
 # Local pre-push gate: backend lint/type-check (pre-commit = ruff + pyrefly) plus,
 # when a frontend/ exists, its eslint + build. `make verify` green => CI's lint/build
@@ -116,7 +116,9 @@ pre-commit:
 # build). Syncs frontend deps first (`pnpm install --frozen-lockfile`) so a stale
 # node_modules after a dependency bump can't fail the build with phantom type
 # errors; it also fails fast when package.json and pnpm-lock.yaml disagree
-# (regenerate with `pnpm install` and commit the lockfile).
+# (regenerate with `pnpm install` and commit the lockfile). Backend deps are
+# auto-synced by `uv run` itself; `--locked` makes pyproject/uv.lock drift
+# fail fast the same way (regenerate with `uv lock` and commit).
 .PHONY: verify
 verify: pre-commit
 	@if [ -d frontend ]; then \
@@ -129,5 +131,5 @@ verify: pre-commit
 ifeq ($(TESTS),yes)
 .PHONY: test
 test:
-	uv run pytest -q
+	uv run --locked pytest -q
 endif
