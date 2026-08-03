@@ -113,12 +113,15 @@ pre-commit:
 # when a frontend/ exists, its eslint + build. `make verify` green => CI's lint/build
 # gate is green for TRACKED files. Like pre-commit it checks tracked files only, so
 # `git add` brand-new files first. CI stays the full safety net (tests + docker image
-# build). Assumes frontend deps are installed (does not run `pnpm install`).
+# build). Syncs frontend deps first (`pnpm install --frozen-lockfile`) so a stale
+# node_modules after a dependency bump can't fail the build with phantom type
+# errors; it also fails fast when package.json and pnpm-lock.yaml disagree
+# (regenerate with `pnpm install` and commit the lockfile).
 .PHONY: verify
 verify: pre-commit
 	@if [ -d frontend ]; then \
-		echo ">> frontend: eslint + build"; \
-		cd frontend && pnpm lint && pnpm build; \
+		echo ">> frontend: install (frozen) + eslint + build"; \
+		cd frontend && pnpm install --frozen-lockfile && pnpm lint && pnpm build; \
 	else \
 		echo ">> no frontend/ — backend checks only"; \
 	fi
