@@ -1,0 +1,27 @@
+name: ci
+
+# Fixture: every `uses:` ref is pinned to a full commit SHA (or is a local
+# action), so validate_action_pins.py must exit 0 here. The SHAs are invented
+# placeholders — nothing in this fixture is ever executed.
+
+on:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@a1b2c3d4e5f60718293a4b5c6d7e8f9012345678 # v7.0.1
+      - uses: actions/setup-python@0f1e2d3c4b5a69788796a5b4c3d2e1f001234567 # v7.0.0
+        with:
+          python-version: '3.11'
+      - uses: ./.local-action
+      - name: Run the thing
+        run: echo ok
+      # A commented-out unpinned ref must be ignored:
+      # - uses: some-org/some-action@v1
+
+  reusable:
+    uses: nos-tromo/.github/.github/workflows/node-lib-ci.yml@fedcba9876543210fedcba9876543210fedcba98 # v3.10
+    with:
+      check-dist: true

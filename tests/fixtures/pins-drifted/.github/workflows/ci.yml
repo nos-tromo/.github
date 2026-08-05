@@ -1,0 +1,20 @@
+name: ci
+
+# Fixture: mutable refs that validate_action_pins.py must reject — a
+# tag-pinned reusable workflow and a tag-pinned action.
+
+on:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Run the thing
+        run: echo ok
+
+  reusable:
+    uses: nos-tromo/.github/.github/workflows/node-lib-ci.yml@v3
+    with:
+      check-dist: true
