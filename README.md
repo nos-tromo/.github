@@ -40,9 +40,12 @@ strict-mode Python lint/type config that the Python-app workflow enforces.
   [`configs/frontend-eslint/`](configs/frontend-eslint/) — other canonical files
   vendored verbatim into consumers, drift-checked by the matching
   `scripts/validate_*.py` (see [Vendored shared files](#vendored-shared-files)).
+- [`scripts/validate_action_pins.py`](scripts/validate_action_pins.py) — policy
+  check requiring every `uses:` ref in a consumer to be pinned to a full commit
+  SHA (see [SHA-pinned action refs](#sha-pinned-action-refs)).
 - [`.github/dependabot.yml`](.github/dependabot.yml) — org-default
   dependabot template (also runs on this repo for `github-actions`
-  updates).
+  updates, one entry per directory that holds workflows or actions).
 
 ## Using the Python-app workflow
 
@@ -57,12 +60,17 @@ on:
 
 jobs:
   ci:
-    uses: nos-tromo/.github/.github/workflows/python-app-ci.yml@v2
+    uses: nos-tromo/.github/.github/workflows/python-app-ci.yml@<commit-sha>  # v3.11
     with:
       python-versions: '["3.12", "3.13"]'
 ```
 
 The doubled `.github/.github/` is correct — the repo is *named* `.github`.
+
+Every `uses:` ref — this one included — is pinned to a **full 40-character
+commit SHA** with the human-readable version in a trailing comment; see
+[SHA-pinned action refs](#sha-pinned-action-refs) for why, how to resolve a
+tag's SHA, and the check that enforces it.
 
 Common inputs (full schema at the top of the workflow file):
 
@@ -113,7 +121,7 @@ on:
 
 jobs:
   ci:
-    uses: nos-tromo/.github/.github/workflows/infra-validation.yml@v2
+    uses: nos-tromo/.github/.github/workflows/infra-validation.yml@<commit-sha>  # v3.11
     with:
       compose-files: "-f docker/compose.yaml -f docker/compose.override.yaml"
       compose-profiles: "--profile cpu --profile cuda"
@@ -141,7 +149,7 @@ on:
 
 jobs:
   ci:
-    uses: nos-tromo/.github/.github/workflows/node-lib-ci.yml@v3
+    uses: nos-tromo/.github/.github/workflows/node-lib-ci.yml@<commit-sha>  # v3.11
     with:
       check-dist: true
 ```
@@ -197,7 +205,7 @@ permissions:
 
 jobs:
   claude:
-    uses: nos-tromo/.github/.github/workflows/claude.yml@v2
+    uses: nos-tromo/.github/.github/workflows/claude.yml@<commit-sha>  # v3.11
     secrets: inherit
 ```
 
@@ -292,22 +300,63 @@ missing-and-not-opted-in is skipped (a legitimately bespoke repo, e.g.
 `data-plane`, `open-webui`). A repo that adopts later becomes subject to the
 check automatically — there is no exemption list to maintain.
 
+## SHA-pinned action refs
+
+Every `uses:` reference in every federation repo must name a **full
+40-character commit SHA**, with the version it corresponds to in a trailing
+comment:
+
+```yaml
+- uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+```
+
+A tag or branch ref resolves at run time, so whoever controls the tag controls
+what executes in CI — and Actions tags are mutable by design. A commit SHA is
+content-addressed and cannot be moved under a consumer. Dependabot understands
+this convention: it reads the trailing comment and rewrites both the SHA and
+the comment when it opens a bump PR, so pinning costs no maintenance. Each
+consumer needs a `github-actions` entry in its `.github/dependabot.yml`, one
+per directory containing workflows or composite actions (Dependabot does not
+descend into `actions/*/action.yml` on its own).
+
+Two forms are exempt, having no mutable remote ref to pin: a local action
+(`./path`, whatever the run already checked out) and a container action pinned
+by image digest (`docker://image@sha256:…`).
+
+[`scripts/validate_action_pins.py`](scripts/validate_action_pins.py) enforces
+this. It scans the consumer's `.github/workflows/*.yml|*.yaml` plus any
+`action.yml|action.yaml` at the root or under `actions/*/`, and fails with a
+`file:line` for each unpinned ref. It runs in the `python-app-ci` lint job, the
+`infra-validation` make-common job, and a dedicated `action-pins` job in
+`node-lib-ci`; a repo with no `.github/workflows/` directory is skipped. Run it
+locally the same way as the other validators:
+
+```bash
+python3 scripts/validate_action_pins.py --consumer-root ../chorus
+```
+
+To resolve a tag to its SHA:
+`git ls-remote https://github.com/actions/checkout refs/tags/v7.0.1`.
+
 ## Versioning
 
-Workflows are released as immutable minor tags (`v2.1`, `v2.2`, …, `v2.9`)
-with a moving major alias (`v2`) that always points at the latest `v2.x`.
-New consumers should pin the major alias (`@v2`) — as the examples above do —
-so they track minor releases automatically. Pinning an exact minor (`@v2.9`)
-also works: each consumer runs Dependabot's `github-actions` ecosystem, which
-opens a bump PR when a newer tag ships.
+Workflows are released as immutable minor tags (`v3.1`, `v3.2`, …) with a
+moving major alias (`v3`) that always points at the latest `v3.x`. Consumers
+pin the **commit SHA** the tag points at, not the tag itself (see
+[SHA-pinned action refs](#sha-pinned-action-refs)) — as the examples above do —
+and keep the minor version in the trailing comment so it stays readable.
+Dependabot's `github-actions` ecosystem opens a bump PR when a newer tag ships,
+rewriting SHA and comment together. The tags remain the release mechanism and
+the unit a bump PR is named after; the major alias is what anything still
+referencing `@v3` resolves through.
 
-Cutting a tag is the release mechanism, and it has **two** steps — the second
-is easy to forget and silently strands `@v2` consumers on the old commit:
+Cutting a tag has **two** steps — the second is easy to forget and silently
+strands anything on `@v3` at the old commit:
 
 1. Tag the merge commit with the next minor —
-   `git tag -a v2.10 -m "v2.10: …" && git push origin v2.10`
+   `git tag -a v3.12 -m "v3.12: …" && git push origin v3.12`
 2. Move the major alias to the same commit —
-   `git tag -f -a v2 -m "v2: …" && git push origin v2 --force`
+   `git tag -f -a v3 -m "v3: …" && git push origin v3 --force`
 
 Because the `python-app-ci` lint job validates each consumer against the
 strict config that shipped with the tag it runs, a canonical-config change
@@ -326,10 +375,13 @@ runs on every PR and push to `main`. It does two things:
    consumer gets (pinned in
    [`precommit-versions.yaml`](configs/python-strict/precommit-versions.yaml)).
    The validator that enforces strict mode must itself pass strict mode.
-2. **Smoke-tests the validator** against fixtures in
+2. **Smoke-tests the validators** against fixtures in
    [`tests/fixtures/`](tests/fixtures/): an `aligned` fixture (must
    return 0; also exercises the `target-version` allowed-override and the
-   `[tool.pyrefly]` mirror path) and a `drifted` fixture (must return non-zero).
+   `[tool.pyrefly]` mirror path) and a `drifted` fixture (must return non-zero),
+   and the equivalent pairs for the vendored-file and action-pin validators.
+   The `pins-smoke` job additionally runs `validate_action_pins.py` against
+   this repo itself, so the hub is held to the policy it ships.
 
 When anything under `configs/python-strict/` changes, the aligned
 fixture must be updated to mirror it — same drift signal real
