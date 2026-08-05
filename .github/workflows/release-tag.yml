@@ -41,10 +41,28 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0        # full history + tags for describe / existence check
-      - uses: nos-tromo/.github/actions/release-tag@v3
+      - name: Resolve canonical action ref
+        id: canonical-ref
+        env:
+          # github.job_workflow_ref points to this reusable workflow itself
+          # (e.g. nos-tromo/.github/.github/workflows/release-tag.yml@<sha>);
+          # stripping everything up to '@' recovers the exact ref the caller
+          # pinned. Checking out the composite action at that same ref keeps
+          # workflow and action version-locked with no mutable tag in between.
+          WORKFLOW_REF: ${{ github.job_workflow_ref }}
+        run: |
+          ref="${WORKFLOW_REF##*@}"
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+      - name: Checkout canonical release-tag action
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: nos-tromo/.github
+          ref: ${{ steps.canonical-ref.outputs.ref }}
+          path: .nos-tromo-github-ref
+      - uses: ./.nos-tromo-github-ref/actions/release-tag
         with:
           version-file: ${{ inputs.version-file }}
           version-source: ${{ inputs.version-source }}

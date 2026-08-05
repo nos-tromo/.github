@@ -26,6 +26,9 @@ is correct — the repo is *named* `.github`. The main ones:
 - `node-lib-ci.yml` — pnpm lint/typecheck/test/build for `@infra/ui`, with optional `check-dist`.
 - `claude.yml` — **manual `@claude` only, no automatic per-PR review** (deliberate: exposes no `prompt` input, wires no `pull_request` trigger).
 - `release-tag.yml` — mints an annotated `vX.Y.Z` tag on merge, wrapping `actions/release-tag`.
+  Its self-reference is **ref-locked, not tag-pinned**: it resolves `github.job_workflow_ref`,
+  checks this repo out at that exact ref, and runs `./.nos-tromo-github-ref/actions/release-tag`.
+  Workflow and composite action are therefore always the same revision, with no mutable tag between.
 
 **Canonical config + drift-check.** Canonical files live in `configs/`; each has a
 validator in `scripts/` that fails CI on drift. Two comparison flavors:
@@ -35,6 +38,12 @@ validator in `scripts/` that fails CI on drift. Two comparison flavors:
 - **Verbatim vendor** (`make/common.mk`, `bundle-lib.sh`, `eslint.config.js`): copied
   byte-for-byte into consumers and compared with an exact file diff. **Never hand-edit the
   vendored copy — change the canonical file and re-vendor.**
+
+`validate_action_pins.py` is a fifth validator that fits neither flavor: it has no canonical
+file at all. It is a **policy check on the consumer's own workflows** — every `uses:` ref must
+name a full 40-hex commit SHA (local `./path` actions and `docker://…@sha256:` digests exempt;
+no `.github/workflows/` at all = skip). It runs in `python-app-ci`'s lint job, `infra-validation`'s
+make-common job, and `node-lib-ci`'s `action-pins` job, and self-ci runs it against this repo.
 
 ## Invariants you must preserve
 
@@ -79,6 +88,8 @@ python3 scripts/validate_strict_config.py --consumer-root ../chorus   # real con
 python3 scripts/validate_make_common.py   --consumer-root tests/fixtures/mk-aligned
 python3 scripts/validate_bundle_lib.py    --consumer-root tests/fixtures/bundle-aligned
 python3 scripts/validate_eslint_config.py --consumer-root tests/fixtures/eslint-aligned
+python3 scripts/validate_action_pins.py   --consumer-root tests/fixtures/pins-aligned
+python3 scripts/validate_action_pins.py   --consumer-root .   # the hub is subject to its own pin policy
 
 # Lint scripts/ exactly as self-ci does — pinned ruff version, canonical config:
 VER=$(grep '^ruff:' configs/python-strict/precommit-versions.yaml | awk '{print $2}' | tr -d '"' | sed 's/^v//')
@@ -105,6 +116,7 @@ smoke job there too.
 - `.github/workflows/` — reusable workflows (above) + `self-ci.yml` (this repo's own CI).
 - `actions/release-tag/` — composite action; `extract_version.py` + its pytest suite.
 - `configs/` — canonical shared files: `python-strict/`, `make-common/`, `bundle/`, `frontend-eslint/`.
-- `scripts/` — the stdlib-only drift validators.
-- `tests/fixtures/` — per-validator `*-aligned` / `*-drifted` / `*-absent` / `*-required-absent` fixtures; `tests/*.sh` are bash smoke tests.
+- `scripts/` — the stdlib-only drift validators plus the action-pin policy check.
+- `tests/fixtures/` — per-validator `*-aligned` / `*-drifted` / `*-absent` / `*-required-absent` fixtures
+  (the `pins-*` set uses invented placeholder SHAs); `tests/*.sh` are bash smoke tests.
 - `docs/superpowers/specs/` and `docs/superpowers/plans/` — dated design specs and implementation plans (this repo uses the brainstorm → spec → plan workflow; read the relevant spec before changing bundle/release behavior).

@@ -80,12 +80,13 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Resolve canonical strict-config ref
         id: canonical-ref
         env:
           # github.job_workflow_ref is e.g.
-          #   nos-tromo/.github/.github/workflows/python-app-ci.yml@refs/tags/v2
+          #   nos-tromo/.github/.github/workflows/python-app-ci.yml@<sha>
+          # (or @refs/tags/vN for a tag-pinned caller).
           # Unlike github.workflow_ref (which points to the *calling* workflow,
           # e.g. consumer-repo/.github/workflows/ci.yml@refs/pull/N/merge),
           # github.job_workflow_ref points to this reusable workflow itself.
@@ -95,7 +96,7 @@ jobs:
           ref="${WORKFLOW_REF##*@}"
           echo "ref=$ref" >> "$GITHUB_OUTPUT"
       - name: Checkout canonical strict-config
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: nos-tromo/.github
           ref: ${{ steps.canonical-ref.outputs.ref }}
@@ -114,7 +115,11 @@ jobs:
         env:
           FRONTEND_DIR: ${{ inputs.frontend-dir }}
         run: python3 .nos-tromo-github-ref/scripts/validate_eslint_config.py --frontend-dir "$FRONTEND_DIR"
-      - uses: astral-sh/setup-uv@v7
+      - name: Validate workflow action pins
+        # Every `uses:` in the consumer's workflows must reference a full commit
+        # SHA (supply-chain hardening); local `./path` actions are exempt.
+        run: python3 .nos-tromo-github-ref/scripts/validate_action_pins.py
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           enable-cache: true
           cache-dependency-glob: '**/uv.lock'
@@ -147,8 +152,8 @@ jobs:
       matrix:
         python-version: ${{ fromJson(inputs.python-versions) }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           enable-cache: true
           cache-dependency-glob: '**/uv.lock'
@@ -178,11 +183,11 @@ jobs:
       run:
         working-directory: ${{ inputs.frontend-dir }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
         with:
           version: ${{ inputs.pnpm-version }}
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ inputs.node-version }}
           cache: pnpm
@@ -204,8 +209,8 @@ jobs:
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
           sudo docker image prune --all --force
-      - uses: actions/checkout@v7
-      - uses: docker/setup-buildx-action@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
       - name: Create external networks
         # Every app's compose declares inference-net and data-net as external;
         # `docker compose build` resolves the compose file before building, so
