@@ -20,6 +20,9 @@ name: self-ci
 #                         bundle_version / bundle_checkout_release behavior scripts.
 #   eslint-config-smoke — validate_eslint_config.py vs its aligned/drifted/absent
 #                         fixtures.
+#   pins-smoke          — validate_action_pins.py vs its aligned/drifted/absent
+#                         fixtures, plus this repo's own workflows (the hub
+#                         enforces the SHA-pin policy on itself).
 #   release-tag-unit    — pytest suite for actions/release-tag/extract_version.py
 #                         (the version extractor + anti-downgrade comparator).
 #
@@ -40,8 +43,8 @@ jobs:
   lint-validator:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
       - name: Read pinned ruff version
         id: ruff
         run: |
@@ -62,8 +65,8 @@ jobs:
   validator-smoke:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.11'
       - name: Aligned fixture should pass
@@ -92,8 +95,8 @@ jobs:
   make-common-smoke:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.11'
       - name: Aligned fixture should pass
@@ -124,8 +127,8 @@ jobs:
   bundle-lib-smoke:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.11'
       - name: Aligned fixture should pass
@@ -157,8 +160,8 @@ jobs:
   eslint-config-smoke:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.11'
       - name: Aligned fixture should pass
@@ -175,6 +178,31 @@ jobs:
       - name: Absent vendored copy should skip (pass)
         run: python3 scripts/validate_eslint_config.py --consumer-root tests/fixtures/eslint-absent
 
+  pins-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.11'
+      - name: Aligned fixture should pass
+        # Fully SHA-pinned refs, a local ./action, and a commented-out
+        # unpinned ref that must be ignored.
+        run: python3 scripts/validate_action_pins.py --consumer-root tests/fixtures/pins-aligned
+      - name: Drifted fixture should fail
+        run: |
+          if python3 scripts/validate_action_pins.py --consumer-root tests/fixtures/pins-drifted; then
+            echo "Bug: validator returned 0 on tag-pinned action refs" >&2
+            exit 1
+          fi
+          echo "OK: validator correctly returned non-zero on unpinned refs"
+      - name: No workflows should skip (pass)
+        run: python3 scripts/validate_action_pins.py --consumer-root tests/fixtures/pins-absent
+      - name: This repo's own workflows must be pinned
+        # The hub ships the policy, so it is subject to it: every `uses:` in
+        # .github/workflows/ and actions/*/action.yml must name a full SHA.
+        run: python3 scripts/validate_action_pins.py --consumer-root .
+
   release-tag-unit:
     # Unit tests for actions/release-tag/extract_version.py — the version
     # extractor and anti-downgrade comparator the release-tag action depends on.
@@ -183,8 +211,8 @@ jobs:
     # stdlib-only); pin Python 3.11 to match the action's own runtime.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
       - name: Pytest
         working-directory: actions/release-tag
         run: uv run --python 3.11 --with pytest python -m pytest -q

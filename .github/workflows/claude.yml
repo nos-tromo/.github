@@ -38,7 +38,7 @@ name: claude
 #     actions: read
 #   jobs:
 #     claude:
-#       uses: nos-tromo/.github/.github/workflows/claude.yml@v2
+#       uses: nos-tromo/.github/.github/workflows/claude.yml@<sha>  # vX.Y
 #       secrets: inherit    # forwards the org auth secret (see prerequisites)
 #
 # --- Prerequisites (one-time, org-wide) -------------------------------------
@@ -86,12 +86,12 @@ jobs:
       actions: read         # read CI results on the PR
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
       - name: Run Claude Code
         id: claude
-        uses: anthropics/claude-code-action@v1
+        uses: anthropics/claude-code-action@9db594c7a0e82298c121c18b7f08aa1579ce7341 # v1.0.185
         with:
           # Claude Max/Pro subscription auth — the token `/install-github-app`
           # provisions. Forwarded from an org-level secret by `secrets: inherit`.

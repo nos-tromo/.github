@@ -34,7 +34,7 @@ jobs:
   yamllint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install yamllint
         run: pipx install yamllint
       - name: Lint YAML
@@ -44,7 +44,7 @@ jobs:
   shellcheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Run shellcheck
         env:
           GLOB: ${{ inputs.shell-scripts-glob }}
@@ -61,7 +61,7 @@ jobs:
   hadolint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Run hadolint on Dockerfiles
         env:
           GLOB: ${{ inputs.dockerfiles-glob }}
@@ -87,7 +87,7 @@ jobs:
     if: ${{ inputs.compose-files != '' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Stub external networks + volumes
         # External resources declared in compose must exist before `docker compose
         # config` will resolve. Create idempotently; mirrors `make network`.
@@ -111,7 +111,7 @@ jobs:
   make-common:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Resolve canonical ref
         id: canonical-ref
         env:
@@ -123,7 +123,7 @@ jobs:
           ref="${WORKFLOW_REF##*@}"
           echo "ref=$ref" >> "$GITHUB_OUTPUT"
       - name: Checkout canonical .github
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: nos-tromo/.github
           ref: ${{ steps.canonical-ref.outputs.ref }}
@@ -135,3 +135,7 @@ jobs:
       - name: Validate scripts/bundle-lib.sh alignment
         # Same skip-when-absent semantics as make/common.mk.
         run: python3 .nos-tromo-github-ref/scripts/validate_bundle_lib.py
+      - name: Validate workflow action pins
+        # Every `uses:` in the consumer's workflows must reference a full commit
+        # SHA (supply-chain hardening); local `./path` actions are exempt.
+        run: python3 .nos-tromo-github-ref/scripts/validate_action_pins.py
