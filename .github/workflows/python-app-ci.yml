@@ -12,10 +12,10 @@ on:
         required: true
         type: string
       uv-sync-args:
-        description: 'Args passed verbatim to `uv sync` (e.g. "--frozen --group dev --extra cpu").'
+        description: 'Args passed verbatim to `uv sync` (e.g. "--locked --group dev --extra cpu").'
         required: false
         type: string
-        default: '--frozen --group dev'
+        default: '--locked --group dev'
       docker-build:
         description: 'Run `docker compose build` to validate that the app images build.'
         required: false
