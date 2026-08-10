@@ -2,7 +2,7 @@
 """Version helpers for the release-tag composite action.
 
 Subcommands:
-  extract --file <path> --source {pyproject,plain}
+  extract --file <path> --source {pyproject,plain,package-json}
       Print the release version declared in <path>.
   check-increase --new <ver> --latest <ver>
       Exit 0 if <new>'s (major, minor, patch) is strictly greater than
@@ -13,6 +13,7 @@ Python 3.11+ (tomllib). Standard library only.
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 import tomllib
@@ -29,6 +30,11 @@ def extract(version_file: str, source: str) -> str:
             version = data["project"]["version"]
         except KeyError as exc:
             raise ValueError(f"{version_file}: no [project].version") from exc
+    elif source == "package-json":
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict) or "version" not in data:
+            raise ValueError(f"{version_file}: no top-level 'version'")
+        version = data["version"]
     elif source == "plain":
         version = ""
         for line in path.read_text(encoding="utf-8").splitlines():
@@ -66,7 +72,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="cmd", required=True)
     p_ex = sub.add_parser("extract")
     p_ex.add_argument("--file", required=True)
-    p_ex.add_argument("--source", required=True, choices=["pyproject", "plain"])
+    p_ex.add_argument("--source", required=True, choices=["pyproject", "plain", "package-json"])
     p_ci = sub.add_parser("check-increase")
     p_ci.add_argument("--new", required=True)
     p_ci.add_argument("--latest", required=True)

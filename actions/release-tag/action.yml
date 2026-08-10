@@ -2,7 +2,7 @@ name: release-tag
 description: Mint an annotated vX.Y.Z tag from a declared version file, idempotently.
 inputs:
   version-file:     { description: Path to the version file.,               default: pyproject.toml }
-  version-source:   { description: "pyproject | plain.",                     default: pyproject }
+  version-source:   { description: "pyproject | plain | package-json.",      default: pyproject }
   tag-prefix:       { description: Tag name prefix.,                         default: v }
   enforce-increase: { description: Fail if not greater than latest tag.,     default: "true" }
   dry-run:          { description: Compute/log but do not create the tag.,   default: "false" }

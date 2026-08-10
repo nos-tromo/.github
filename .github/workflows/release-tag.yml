@@ -12,7 +12,7 @@ on:
         type: string
         default: pyproject.toml
       version-source:
-        description: 'pyproject | plain.'
+        description: 'pyproject | plain | package-json.'
         required: false
         type: string
         default: pyproject

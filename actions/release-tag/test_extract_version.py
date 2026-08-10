@@ -18,6 +18,23 @@ def test_extract_plain_first_nonempty(tmp_path):
     assert extract(f, "plain") == "0.1.0"
 
 
+def test_extract_package_json(tmp_path):
+    f = _write(tmp_path, "package.json", '{"name": "@infra/ui", "version": "0.10.0"}\n')
+    assert extract(f, "package-json") == "0.10.0"
+
+
+def test_extract_package_json_missing_version(tmp_path):
+    f = _write(tmp_path, "package.json", '{"name": "@infra/ui"}\n')
+    with pytest.raises(ValueError):
+        extract(f, "package-json")
+
+
+def test_extract_package_json_non_object(tmp_path):
+    f = _write(tmp_path, "package.json", '["not", "an", "object"]\n')
+    with pytest.raises(ValueError):
+        extract(f, "package-json")
+
+
 def test_extract_pyproject_missing_version(tmp_path):
     f = _write(tmp_path, "pyproject.toml", '[project]\nname = "x"\n')
     with pytest.raises(ValueError):
