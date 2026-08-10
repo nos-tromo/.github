@@ -1,0 +1,8 @@
+lockfileVersion: '9.0'
+
+importers:
+  .:
+    dependencies:
+      '@infra/ui':
+        specifier: https://codeload.github.com/nos-tromo/infra-ui/tar.gz/v0.10.0
+        version: https://codeload.github.com/nos-tromo/infra-ui/tar.gz/v0.10.0(react@19.0.0)
