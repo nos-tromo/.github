@@ -23,6 +23,9 @@ name: self-ci
 #   pins-smoke          — validate_action_pins.py vs its aligned/drifted/absent
 #                         fixtures, plus this repo's own workflows (the hub
 #                         enforces the SHA-pin policy on itself).
+#   uipin-smoke         — validate_infra_ui_pin.py vs its aligned/drifted/absent
+#                         fixtures (@infra/ui must be pinned by commit SHA,
+#                         never a mutable tag).
 #   release-tag-unit    — pytest suite for actions/release-tag/extract_version.py
 #                         (the version extractor + anti-downgrade comparator).
 #
@@ -202,6 +205,28 @@ jobs:
         # The hub ships the policy, so it is subject to it: every `uses:` in
         # .github/workflows/ and actions/*/action.yml must name a full SHA.
         run: python3 scripts/validate_action_pins.py --consumer-root .
+
+  uipin-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.11'
+      - name: Aligned fixture should pass
+        # SHA-pinned codeload URL in both package.json and pnpm-lock.yaml.
+        run: python3 scripts/validate_infra_ui_pin.py --consumer-root tests/fixtures/uipin-aligned
+      - name: Drifted fixture should fail
+        # Tag-named codeload URL — mutable, so the validator must reject it
+        # in the manifest and in the lockfile.
+        run: |
+          if python3 scripts/validate_infra_ui_pin.py --consumer-root tests/fixtures/uipin-drifted; then
+            echo "Bug: validator returned 0 on a tag-pinned @infra/ui spec" >&2
+            exit 1
+          fi
+          echo "OK: validator correctly returned non-zero on a tag-pinned spec"
+      - name: No frontend should skip (pass)
+        run: python3 scripts/validate_infra_ui_pin.py --consumer-root tests/fixtures/uipin-absent
 
   release-tag-unit:
     # Unit tests for actions/release-tag/extract_version.py — the version

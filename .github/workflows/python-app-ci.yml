@@ -119,6 +119,13 @@ jobs:
         # Every `uses:` in the consumer's workflows must reference a full commit
         # SHA (supply-chain hardening); local `./path` actions are exempt.
         run: python3 .nos-tromo-github-ref/scripts/validate_action_pins.py
+      - name: Validate @infra/ui pin
+        # The frontend's @infra/ui dependency must be a codeload tarball URL
+        # naming a full commit SHA, never a mutable tag (same supply-chain
+        # seam as action pins). Skips repos without a frontend or the dep.
+        env:
+          FRONTEND_DIR: ${{ inputs.frontend-dir }}
+        run: python3 .nos-tromo-github-ref/scripts/validate_infra_ui_pin.py --frontend-dir "$FRONTEND_DIR"
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           enable-cache: true

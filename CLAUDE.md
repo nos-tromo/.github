@@ -45,6 +45,14 @@ name a full 40-hex commit SHA (local `./path` actions and `docker://…@sha256:`
 no `.github/workflows/` at all = skip). It runs in `python-app-ci`'s lint job, `infra-validation`'s
 make-common job, and `node-lib-ci`'s `action-pins` job, and self-ci runs it against this repo.
 
+`validate_infra_ui_pin.py` is a sixth validator of the same policy flavor, closing the same
+seam one layer up: the app frontends' `@infra/ui` dependency must be a
+`https://codeload.github.com/nos-tromo/infra-ui/tar.gz/<40-hex>` URL, never a mutable tag ref
+(and never the `github:` shorthand Dependabot rewrites to git+SSH). It checks the manifest and
+`pnpm-lock.yaml` both — pnpm stores no integrity hash for tarball URLs, so a stale tag-form
+lockfile would keep resolving the tag even after the manifest was fixed. Skips repos without a
+frontend or without the dep. Runs in `python-app-ci`'s lint job beside the action-pin check.
+
 ## Invariants you must preserve
 
 These are the non-obvious rules that keep the system coherent:
@@ -90,6 +98,7 @@ python3 scripts/validate_bundle_lib.py    --consumer-root tests/fixtures/bundle-
 python3 scripts/validate_eslint_config.py --consumer-root tests/fixtures/eslint-aligned
 python3 scripts/validate_action_pins.py   --consumer-root tests/fixtures/pins-aligned
 python3 scripts/validate_action_pins.py   --consumer-root .   # the hub is subject to its own pin policy
+python3 scripts/validate_infra_ui_pin.py  --consumer-root tests/fixtures/uipin-aligned
 
 # Lint scripts/ exactly as self-ci does — pinned ruff version, canonical config:
 VER=$(grep '^ruff:' configs/python-strict/precommit-versions.yaml | awk '{print $2}' | tr -d '"' | sed 's/^v//')

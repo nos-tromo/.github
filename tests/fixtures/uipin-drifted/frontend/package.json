@@ -1,0 +1,7 @@
+{
+  "name": "fixture-frontend",
+  "private": true,
+  "dependencies": {
+    "@infra/ui": "https://codeload.github.com/nos-tromo/infra-ui/tar.gz/v0.10.0"
+  }
+}
