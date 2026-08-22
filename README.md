@@ -1,7 +1,7 @@
 # nos-tromo/.github
 
 Org-wide CI assets for the [nos-tromo](https://github.com/nos-tromo)
-federation: four reusable GitHub Actions workflows, the canonical strict-mode
+federation: five reusable GitHub Actions workflows, the canonical strict-mode
 Python lint/type config, and the shared build-glue files consumers vendor
 verbatim — all drift-checked in CI. It ships no application code.
 
@@ -15,6 +15,7 @@ reference behind it lives in [docs/](docs/README.md).
 | [`.github/workflows/python-app-ci.yml`](.github/workflows/python-app-ci.yml) | CI for the four Python apps ([chorus](https://github.com/nos-tromo/chorus), [docint](https://github.com/nos-tromo/docint), [Nextext](https://github.com/nos-tromo/Nextext), [translator](https://github.com/nos-tromo/translator)): pre-commit (ruff + pyrefly via the consumer's own `.pre-commit-config.yaml`), pytest across a Python-version matrix, and optional `docker compose build` and React/pnpm frontend jobs. |
 | [`.github/workflows/infra-validation.yml`](.github/workflows/infra-validation.yml) | CI for the infra repos ([vllm-service](https://github.com/nos-tromo/vllm-service), [data-plane](https://github.com/nos-tromo/data-plane), [deploy](https://github.com/nos-tromo/deploy)): yamllint, shellcheck, hadolint, and `docker compose config` validation. |
 | [`.github/workflows/node-lib-ci.yml`](.github/workflows/node-lib-ci.yml) | CI for the shared Node/TypeScript library ([infra-ui](https://github.com/nos-tromo/infra-ui), the `@infra/ui` design system): pnpm lint, typecheck, test, build, and an optional check that a committed prebuilt `dist/` is in sync with source. |
+| [`.github/workflows/release-tag.yml`](.github/workflows/release-tag.yml) | Mints the annotated `vX.Y.Z` tag on merge to `main` from a repo's declared version. Idempotent, with an anti-downgrade guard. |
 | [`.github/workflows/claude.yml`](.github/workflows/claude.yml) | **Manual** `@claude` invocation (interactive/tag mode) in a consumer repo. Acts only when a human mentions `@claude`; deliberately has **no** automatic per-PR review. |
 | [`configs/`](configs/) | Canonical shared files consumers mirror: [`python-strict/`](configs/python-strict/) (ruff, pyrefly, pre-commit versions), [`make-common/`](configs/make-common/), [`bundle/`](configs/bundle/), [`frontend-eslint/`](configs/frontend-eslint/). |
 | [`scripts/`](scripts/) | The stdlib-only drift validators the workflows invoke, plus the action-pin and `@infra/ui` pin policy checks. |
@@ -26,7 +27,7 @@ Each snippet is a complete caller file. The doubled `.github/.github/` is
 correct — the repo is *named* `.github` — and every `uses:` ref must be pinned to
 a **full 40-character commit SHA** with the version in a trailing comment
 ([docs/pinning.md](docs/pinning.md#action-refs)). Full input schemas for all
-four: [docs/workflows.md](docs/workflows.md).
+five: [docs/workflows.md](docs/workflows.md).
 
 ### Python apps
 
@@ -89,6 +90,34 @@ jobs:
 ```
 
 Per-step toggles and `dist-dir` in [workflows.md](docs/workflows.md#node-lib-ci).
+
+### Release tagging
+
+The caller must grant `contents: write` — a reusable workflow's token
+permissions come from the caller.
+
+```yaml
+# <consumer>/.github/workflows/release-tag.yml
+name: release-tag
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-tag-${{ github.ref }}
+
+jobs:
+  tag:
+    uses: nos-tromo/.github/.github/workflows/release-tag.yml@<commit-sha>  # v3.14
+    with:
+      version-file: pyproject.toml
+```
+
+Repos with no `pyproject.toml` point at a `VERSION` file or `package.json`
+instead — see [workflows.md](docs/workflows.md#release-tag).
 
 ### Claude mentions
 

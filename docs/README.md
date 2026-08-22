@@ -7,7 +7,7 @@ mirror, and the release ritual.
 
 | Document | What it covers |
 |---|---|
-| [workflows.md](workflows.md) | Per-workflow reference: inputs, defaults, prerequisites and options for `python-app-ci`, `infra-validation`, `node-lib-ci` and `claude`. |
+| [workflows.md](workflows.md) | Per-workflow reference: inputs, defaults, prerequisites and options for `python-app-ci`, `infra-validation`, `node-lib-ci`, `claude` and `release-tag`. |
 | [pinning.md](pinning.md) | The two commit-SHA pinning policies — Actions `uses:` refs and the `@infra/ui` frontend dependency — and the validators that enforce them. |
 | [strict-python.md](strict-python.md) | The canonical ruff/pyrefly/pre-commit config Python consumers must mirror, how the drift check works, and the intentional choices behind it. |
 | [vendored-files.md](vendored-files.md) | The files copied byte-for-byte into consumers (`make/common.mk`, `bundle-lib.sh`, `eslint.config.js`) and the include-driven rule for when each is required. |

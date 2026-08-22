@@ -1,6 +1,6 @@
 # Reusable workflows
 
-Reference for the four reusable workflows this repo ships. The
+Reference for the five reusable workflows this repo ships. The
 [top-level README](../README.md) carries the minimal caller snippet for each
 one; this file carries the input schemas, prerequisites and options around
 them.
@@ -100,3 +100,39 @@ There is intentionally **no automatic per-PR review**: the workflow exposes no
 stays in interactive mode. Automatic review would be a separate opt-in
 workflow.
 
+## release-tag
+
+Mints the annotated `vX.Y.Z` tag on merge to `main` by reading the repo's
+declared version, wrapping the `actions/release-tag` composite action.
+Idempotent: if the tag already exists the run is a no-op, so bumping the
+version in the release PR is the whole release action.
+
+An anti-downgrade guard compares the declared version against the latest tag
+reachable from `HEAD` and fails the run if it is not greater (disable with
+`enforce-increase: false`). The tag is always **annotated** — `bundle-lib.sh`
+and `git describe` rely on that.
+
+Inputs:
+
+| Input              | Default          | Purpose                                                             |
+|--------------------|------------------|---------------------------------------------------------------------|
+| `version-file`     | `pyproject.toml` | Path to the file holding the declared version.                      |
+| `version-source`   | `pyproject`      | How to read it: `pyproject` \| `plain` \| `package-json`.            |
+| `tag-prefix`       | `v`              | Tag name prefix.                                                    |
+| `enforce-increase` | `true`           | Fail if the declared version is not greater than the latest tag.    |
+| `dry-run`          | `false`          | Compute and log the tag but do not create it.                       |
+
+Repos with no `pyproject.toml` point at their own version file instead — a
+one-line `VERSION` file with `version-source: plain`, or a `package.json` with
+`version-source: package-json`:
+
+```yaml
+    with:
+      version-file: VERSION
+      version-source: plain
+```
+
+The workflow is **ref-locked, not tag-pinned**: it resolves
+`github.job_workflow_ref`, checks this repo out at that exact ref, and runs the
+composite action from there — so workflow and action are always the same
+revision, with no mutable tag in between.
