@@ -40,7 +40,7 @@ on:
 
 jobs:
   ci:
-    uses: nos-tromo/.github/.github/workflows/python-app-ci.yml@<commit-sha>  # v3.11
+    uses: nos-tromo/.github/.github/workflows/python-app-ci.yml@<commit-sha>  # v3.14
     with:
       python-versions: '["3.12", "3.13"]'
 ```
@@ -62,7 +62,7 @@ on:
 
 jobs:
   ci:
-    uses: nos-tromo/.github/.github/workflows/infra-validation.yml@<commit-sha>  # v3.11
+    uses: nos-tromo/.github/.github/workflows/infra-validation.yml@<commit-sha>  # v3.14
     with:
       compose-files: "-f docker/compose.yaml -f docker/compose.override.yaml"
       compose-profiles: "--profile cpu --profile cuda"
@@ -83,7 +83,7 @@ on:
 
 jobs:
   ci:
-    uses: nos-tromo/.github/.github/workflows/node-lib-ci.yml@<commit-sha>  # v3.11
+    uses: nos-tromo/.github/.github/workflows/node-lib-ci.yml@<commit-sha>  # v3.14
     with:
       check-dist: true
 ```
@@ -120,7 +120,7 @@ permissions:
 
 jobs:
   claude:
-    uses: nos-tromo/.github/.github/workflows/claude.yml@<commit-sha>  # v3.11
+    uses: nos-tromo/.github/.github/workflows/claude.yml@<commit-sha>  # v3.14
     secrets: inherit
 ```
 
