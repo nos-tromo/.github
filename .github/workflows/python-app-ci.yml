@@ -126,7 +126,7 @@ jobs:
         env:
           FRONTEND_DIR: ${{ inputs.frontend-dir }}
         run: python3 .nos-tromo-github-ref/scripts/validate_infra_ui_pin.py --frontend-dir "$FRONTEND_DIR"
-      - uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: true
           cache-dependency-glob: '**/uv.lock'
@@ -160,7 +160,7 @@ jobs:
         python-version: ${{ fromJson(inputs.python-versions) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: true
           cache-dependency-glob: '**/uv.lock'
