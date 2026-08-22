@@ -1,57 +1,38 @@
 # nos-tromo/.github
 
 Org-wide CI assets for the [nos-tromo](https://github.com/nos-tromo)
-federation: three reusable GitHub Actions workflows and the canonical
-strict-mode Python lint/type config that the Python-app workflow enforces.
+federation: five reusable GitHub Actions workflows, the canonical strict-mode
+Python lint/type config, and the shared build-glue files consumers vendor
+verbatim — all drift-checked in CI. It ships no application code.
+
+This page is the inventory plus one copyable caller snippet per workflow; the
+reference behind it lives in [docs/](docs/README.md).
 
 ## What's here
 
-- [`.github/workflows/python-app-ci.yml`](.github/workflows/python-app-ci.yml)
-  — reusable workflow for the four Python apps
-  ([`chorus`](https://github.com/nos-tromo/chorus),
-  [`docint`](https://github.com/nos-tromo/docint),
-  [`Nextext`](https://github.com/nos-tromo/Nextext),
-  [`translator`](https://github.com/nos-tromo/translator)). Runs
-  pre-commit (ruff + pyrefly via the consumer's own `.pre-commit-config.yaml`),
-  pytest across a Python-version matrix, and optional
-  `docker compose build` and React/pnpm frontend jobs.
-- [`.github/workflows/infra-validation.yml`](.github/workflows/infra-validation.yml)
-  — reusable workflow for the infra repos
-  ([`vllm-service`](https://github.com/nos-tromo/vllm-service),
-  [`data-plane`](https://github.com/nos-tromo/data-plane),
-  [`deploy`](https://github.com/nos-tromo/deploy)). yamllint, shellcheck,
-  hadolint, and `docker compose config` validation (the last skipped when the
-  caller passes no compose files, as `deploy` does).
-- [`.github/workflows/node-lib-ci.yml`](.github/workflows/node-lib-ci.yml)
-  — reusable workflow for the shared Node/TypeScript library
-  ([`infra-ui`](https://github.com/nos-tromo/infra-ui), the `@infra/ui`
-  design system). Runs pnpm lint, typecheck, test, and build, and optionally
-  verifies a committed prebuilt output dir (`dist/`) is in sync with source.
-- [`.github/workflows/claude.yml`](.github/workflows/claude.yml) — reusable
-  workflow for **manual** `@claude` invocation (interactive/tag mode) in any
-  consumer repo. Acts only when a human mentions `@claude` in an
-  issue/PR/comment/review; deliberately has **no** automatic per-PR review.
-- [`configs/python-strict/`](configs/python-strict/) — canonical ruff,
-  pyrefly, and pre-commit version configs that Python-app consumers must
-  mirror.
-- [`scripts/validate_strict_config.py`](scripts/validate_strict_config.py)
-  — alignment enforcer invoked from the `python-app-ci` workflow.
-- [`configs/make-common/`](configs/make-common/), [`configs/bundle/`](configs/bundle/),
-  [`configs/frontend-eslint/`](configs/frontend-eslint/) — other canonical files
-  vendored verbatim into consumers, drift-checked by the matching
-  `scripts/validate_*.py` (see [Vendored shared files](#vendored-shared-files)).
-- [`scripts/validate_action_pins.py`](scripts/validate_action_pins.py) — policy
-  check requiring every `uses:` ref in a consumer to be pinned to a full commit
-  SHA (see [SHA-pinned action refs](#sha-pinned-action-refs)).
-- [`.github/dependabot.yml`](.github/dependabot.yml) — org-default
-  dependabot template (also runs on this repo for `github-actions`
-  updates, one entry per directory that holds workflows or actions).
+| Path | What it provides |
+|---|---|
+| [`.github/workflows/python-app-ci.yml`](.github/workflows/python-app-ci.yml) | CI for the four Python apps ([chorus](https://github.com/nos-tromo/chorus), [docint](https://github.com/nos-tromo/docint), [Nextext](https://github.com/nos-tromo/Nextext), [translator](https://github.com/nos-tromo/translator)): pre-commit (ruff + pyrefly via the consumer's own `.pre-commit-config.yaml`), pytest across a Python-version matrix, and optional `docker compose build` and React/pnpm frontend jobs. |
+| [`.github/workflows/infra-validation.yml`](.github/workflows/infra-validation.yml) | CI for the infra repos ([vllm-service](https://github.com/nos-tromo/vllm-service), [data-plane](https://github.com/nos-tromo/data-plane), [deploy](https://github.com/nos-tromo/deploy)): yamllint, shellcheck, hadolint, and `docker compose config` validation. |
+| [`.github/workflows/node-lib-ci.yml`](.github/workflows/node-lib-ci.yml) | CI for the shared Node/TypeScript library ([infra-ui](https://github.com/nos-tromo/infra-ui), the `@infra/ui` design system): pnpm lint, typecheck, test, build, and an optional check that a committed prebuilt `dist/` is in sync with source. |
+| [`.github/workflows/release-tag.yml`](.github/workflows/release-tag.yml) | Mints the annotated `vX.Y.Z` tag on merge to `main` from a repo's declared version. Idempotent, with an anti-downgrade guard. |
+| [`.github/workflows/claude.yml`](.github/workflows/claude.yml) | **Manual** `@claude` invocation (interactive/tag mode) in a consumer repo. Acts only when a human mentions `@claude`; deliberately has **no** automatic per-PR review. |
+| [`configs/`](configs/) | Canonical shared files consumers mirror: [`python-strict/`](configs/python-strict/) (ruff, pyrefly, pre-commit versions), [`make-common/`](configs/make-common/), [`bundle/`](configs/bundle/), [`frontend-eslint/`](configs/frontend-eslint/). |
+| [`scripts/`](scripts/) | The stdlib-only drift validators the workflows invoke, plus the action-pin and `@infra/ui` pin policy checks. |
+| [`.github/dependabot.yml`](.github/dependabot.yml) | Org-default dependabot template (also runs on this repo for `github-actions` updates, one entry per directory that holds workflows or actions). |
 
-## Using the Python-app workflow
+## Calling a workflow
 
-In a Python-app consumer (e.g. `chorus/.github/workflows/ci.yml`):
+Each snippet is a complete caller file. The doubled `.github/.github/` is
+correct — the repo is *named* `.github` — and every `uses:` ref must be pinned to
+a **full 40-character commit SHA** with the version in a trailing comment
+([docs/pinning.md](docs/pinning.md#action-refs)). Full input schemas for all
+five: [docs/workflows.md](docs/workflows.md).
+
+### Python apps
 
 ```yaml
+# chorus/.github/workflows/ci.yml
 name: ci
 on:
   pull_request:
@@ -60,59 +41,20 @@ on:
 
 jobs:
   ci:
-    uses: nos-tromo/.github/.github/workflows/python-app-ci.yml@<commit-sha>  # v3.11
+    uses: nos-tromo/.github/.github/workflows/python-app-ci.yml@<commit-sha>  # v3.14
     with:
       python-versions: '["3.12", "3.13"]'
 ```
 
-The doubled `.github/.github/` is correct — the repo is *named* `.github`.
+Options (`uv-sync-args`, `docker-build`, `frontend-build`, `test-env`, …) in
+[workflows.md](docs/workflows.md#python-app-ci). A consumer with a frontend must
+also pin `@infra/ui` as a commit-SHA tarball URL:
+[pinning.md](docs/pinning.md#infra-ui-tarball-pins).
 
-Every `uses:` ref — this one included — is pinned to a **full 40-character
-commit SHA** with the human-readable version in a trailing comment; see
-[SHA-pinned action refs](#sha-pinned-action-refs) for why, how to resolve a
-tag's SHA, and the check that enforces it.
-
-Common inputs (full schema at the top of the workflow file):
-
-| Input                     | Default                                              | Purpose                                                                                                            |
-|---------------------------|------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------|
-| `python-versions`         | _(required)_                                         | JSON list. Lint runs against the first version; tests run against all.                                             |
-| `uv-sync-args`            | `--frozen --group dev`                               | Override for repos with extras (e.g. `--frozen --group dev --extra cuda`).                                         |
-| `docker-build`            | `false`                                              | Set `true` to validate `docker compose build`. The job stubs `inference-net`, `data-net`, and a placeholder `.env`. |
-| `docker-compose-files`    | `-f docker/compose.yaml -f docker/compose.override.yaml` | Compose file selection for `docker compose build`.                                                                 |
-| `docker-compose-profiles` | _(empty)_                                            | E.g. `--profile cpu`. Required where compose gates services behind a profile.                                      |
-| `frontend-build`          | `false`                                              | Set `true` for repos with a React/pnpm frontend (e.g. `docint`).                                                   |
-| `frontend-dir`            | `frontend`                                           | Path to the frontend project.                                                                                      |
-| `test-env`                | _(empty)_                                            | Multiline `KEY=VALUE` block for apps whose imports require env at module scope (e.g. `translator`'s `OPENAI_API_BASE`). |
-| `pytest-args`             | _(empty)_                                            | Extra args passed verbatim to `pytest`.                                                                            |
-
-### Frontend: pin `@infra/ui` to a tarball URL, never `github:`
-
-A `frontend` consuming the shared design system must reference it as a
-**commit-SHA-pinned codeload tarball URL**, not the `github:` shorthand:
-
-```jsonc
-// frontend/package.json
-"@infra/ui": "https://codeload.github.com/nos-tromo/infra-ui/tar.gz/<commit-sha>"  // correct
-"@infra/ui": "github:nos-tromo/infra-ui#v0.2.1"                                    // wrong — breaks CI
-```
-
-A human `pnpm install` resolves the `github:` form to that same public HTTPS
-tarball, so it looks fine locally. But when Dependabot regenerates
-`pnpm-lock.yaml` for *any* frontend bump, it rewrites the entry to a
-`git@github.com:` SSH resolution, which then fails both jobs: `frontend`
-SSH-clones with no key (`Permission denied (publickey)`) and `docker` has no
-`git` in the `node:*-alpine` builder (`pnpm: not found: git`). The pinned
-tarball leaves no `github:` shorthand to rewrite and installs over HTTPS with
-no key or git binary. Bump it by swapping the commit SHA (`git rev-list -n1
-<tag>` in `infra-ui`); the lockfile `version`/`resolution` are unchanged, so
-the re-lock diff is just the one `specifier` line.
-
-## Using the infra-validation workflow
-
-In an infra-only consumer (`vllm-service`, `data-plane`):
+### Infra repos
 
 ```yaml
+# vllm-service/.github/workflows/ci.yml
 name: ci
 on:
   pull_request:
@@ -121,26 +63,19 @@ on:
 
 jobs:
   ci:
-    uses: nos-tromo/.github/.github/workflows/infra-validation.yml@<commit-sha>  # v3.11
+    uses: nos-tromo/.github/.github/workflows/infra-validation.yml@<commit-sha>  # v3.14
     with:
       compose-files: "-f docker/compose.yaml -f docker/compose.override.yaml"
       compose-profiles: "--profile cpu --profile cuda"
 ```
 
-Inputs:
+Omit `compose-files` to skip the `compose-config` job, as `deploy` does; hadolint
+and shellcheck globs in [workflows.md](docs/workflows.md#infra-validation).
 
-| Input                | Default              | Purpose                                                                            |
-|----------------------|----------------------|------------------------------------------------------------------------------------|
-| `compose-files`      | _(empty)_            | Space-separated `-f` arguments for `docker compose config`. Omit to skip the `compose-config` job (infra repos that own no compose, e.g. `deploy`). |
-| `compose-profiles`   | _(empty)_            | Space-separated `--profile` arguments.                                             |
-| `dockerfiles-glob`   | `docker/Dockerfile.*`| Glob for hadolint (fails only on `error`-level findings).                          |
-| `shell-scripts-glob` | `scripts/*.sh`       | Glob for shellcheck.                                                               |
-
-## Using the node-lib workflow
-
-In the shared Node/TypeScript library (`infra-ui/.github/workflows/ci.yml`):
+### Node library
 
 ```yaml
+# infra-ui/.github/workflows/ci.yml
 name: CI
 on:
   pull_request:
@@ -149,39 +84,48 @@ on:
 
 jobs:
   ci:
-    uses: nos-tromo/.github/.github/workflows/node-lib-ci.yml@<commit-sha>  # v3.11
+    uses: nos-tromo/.github/.github/workflows/node-lib-ci.yml@<commit-sha>  # v3.14
     with:
       check-dist: true
 ```
 
-Runs `pnpm install --frozen-lockfile`, then lint, typecheck, test, and build.
-The pnpm version comes from the package's `packageManager` field. With
-`check-dist: true`, a final step re-runs `pnpm build` and fails if the committed
-output dir is no longer in sync with source — the guard for a library that ships
-a prebuilt `dist/` in git, as `@infra/ui` does (every app frontend consumes it
-as a commit-SHA-pinned tarball with no install-time rebuild).
+Per-step toggles and `dist-dir` in [workflows.md](docs/workflows.md#node-lib-ci).
 
-Inputs:
+### Release tagging
 
-| Input               | Default | Purpose                                                                 |
-|---------------------|---------|-------------------------------------------------------------------------|
-| `node-version`      | `20`    | Node version for the run.                                               |
-| `working-directory` | `.`     | Package dir (where `package.json` + `pnpm-lock.yaml` live).             |
-| `run-lint`          | `true`  | Run `pnpm lint`.                                                         |
-| `run-typecheck`     | `true`  | Run `pnpm typecheck`.                                                    |
-| `run-test`          | `true`  | Run `pnpm test`.                                                         |
-| `run-build`         | `true`  | Run `pnpm build` (implied when `check-dist` is set).                     |
-| `check-dist`        | `false` | After build, fail if the committed `dist-dir` drifts from a fresh build. |
-| `dist-dir`          | `dist`  | Output dir checked by `check-dist`.                                      |
-
-## Using the Claude mention workflow
-
-Turns on Claude's `@claude` mention in a consumer repo — **manual only, no
-automatic reviews**. The comment/issue triggers must live in the caller (a
-reusable workflow can't declare triggers that fire in another repo), so drop
-this into a consumer as `.github/workflows/claude.yml`:
+The caller must grant `contents: write` — a reusable workflow's token
+permissions come from the caller.
 
 ```yaml
+# <consumer>/.github/workflows/release-tag.yml
+name: release-tag
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-tag-${{ github.ref }}
+
+jobs:
+  tag:
+    uses: nos-tromo/.github/.github/workflows/release-tag.yml@<commit-sha>  # v3.14
+    with:
+      version-file: pyproject.toml
+```
+
+Repos with no `pyproject.toml` point at a `VERSION` file or `package.json`
+instead — see [workflows.md](docs/workflows.md#release-tag).
+
+### Claude mentions
+
+The comment/issue triggers must live in the caller (a reusable workflow can't
+declare triggers that fire in another repo):
+
+```yaml
+# <consumer>/.github/workflows/claude.yml
 name: claude
 on:
   issue_comment:
@@ -205,198 +149,32 @@ permissions:
 
 jobs:
   claude:
-    uses: nos-tromo/.github/.github/workflows/claude.yml@<commit-sha>  # v3.11
+    uses: nos-tromo/.github/.github/workflows/claude.yml@<commit-sha>  # v3.14
     secrets: inherit
 ```
 
-One-time prerequisites (org-wide):
-
-1. Install the [Claude GitHub App](https://github.com/apps/claude).
-2. Add an org-level `CLAUDE_CODE_OAUTH_TOKEN` Actions secret scoped to the
-   repos — the token `/install-github-app` provisions for a Claude Max/Pro
-   subscription. `secrets: inherit` forwards it into the workflow. (Using the
-   direct Claude API instead? Forward `ANTHROPIC_API_KEY` and swap the input —
-   see the workflow header.)
-
-Optional inputs:
-
-| Input            | Default   | Purpose                                                         |
-|------------------|-----------|-----------------------------------------------------------------|
-| `trigger_phrase` | `@claude` | Phrase that summons Claude in an issue/PR/comment.              |
-| `claude_args`    | _(empty)_ | Verbatim Claude Code CLI args, e.g. `--model … --max-turns 10`. |
-
-There is intentionally **no automatic per-PR review**: the workflow exposes no
-`prompt` input and wires no `pull_request` trigger, so `claude-code-action@v1`
-stays in interactive mode. Automatic review would be a separate opt-in
-workflow.
-
-## Strict-mode Python config
-
-The `lint` job in `python-app-ci.yml` checks out **this repo at the same
-ref the workflow is running at** and diffs the consumer's `pyproject.toml`
-and `.pre-commit-config.yaml` against [`configs/python-strict/`](configs/python-strict/).
-Any drift fails CI.
-
-The guarantee: a consumer pinned to tag `vN` is always validated against
-the canonical config that shipped with `vN`.
-
-Consumers must mirror, exactly:
-
-1. **`[tool.ruff]` in `pyproject.toml`** ← [`ruff.toml`](configs/python-strict/ruff.toml).
-   The only key a consumer may override is `target-version` (each repo
-   has a different Python floor).
-2. **`[tool.pyrefly]` in `pyproject.toml`** ← [`pyrefly.toml`](configs/python-strict/pyrefly.toml).
-3. **`rev:` for the ruff and pyrefly hooks in `.pre-commit-config.yaml`**
-   ← [`precommit-versions.yaml`](configs/python-strict/precommit-versions.yaml).
-
-To check alignment locally from a consumer repo:
-
-```bash
-python3 ../.github/scripts/validate_strict_config.py
-```
-
-(adjust the path; or pass `--consumer-root`). Exits 0 on alignment, 1 on
-drift, with concrete entries on stderr.
-
-A few intentional choices worth knowing:
-
-- `ignore-missing-imports = ["*"]` in `pyrefly.toml` is load-bearing — without
-  it, strict mode would fail on every untyped third-party import
-  (Streamlit, the Neo4j driver, llama-index, etc.). Strict applies to
-  first-party code; transitive untyped seams are out of scope.
-- `ANN401` (forbid `Any`) is ignored in `ruff.toml` for the same reason:
-  bridges to untyped libraries force `Any` constantly, and strict pyrefly
-  is the actual rigor.
-- The canonical regime is `preset = "strict"` — pyrefly's full strict checks.
-  `uv run pyrefly init pyproject.toml --non-interactive` scaffolds a starting
-  `[tool.pyrefly]` block but emits a laxer migration default, so set
-  `preset = "strict"` and mirror the canonical values after scaffolding.
-
-## Vendored shared files
-
-Beyond the merged-in strict config, three files are **vendored verbatim** into
-consumers and drift-checked by the reusable workflows (`python-app-ci` checks
-all three; `infra-validation` the first two):
-
-| Vendored file | Canonical source | Validator |
-|---------------|------------------|-----------|
-| `make/common.mk` | [`configs/make-common/`](configs/make-common/) | `scripts/validate_make_common.py` |
-| `scripts/bundle-lib.sh` | [`configs/bundle/`](configs/bundle/) | `scripts/validate_bundle_lib.py` |
-| `frontend/eslint.config.js` | [`configs/frontend-eslint/`](configs/frontend-eslint/) | `scripts/validate_eslint_config.py` |
-
-`common.mk` also carries the two local gates that mirror `python-app-ci`:
-`make verify` (pre-commit + frontend eslint/build) and `make test` (pytest +
-frontend vitest; `make test-backend` / `make test-frontend` run one half —
-the frontend half is skipped when there is no `frontend/`, the backend half
-when the repo sets `TESTS := no`).
-
-Unlike the strict config (merged into `pyproject.toml` and compared
-semantically), these are copied byte-for-byte — the check is an exact file
-comparison, so re-vendor on change rather than hand-editing the copy.
-
-**Required-ness is include-driven** — a vendored file is enforced only where the
-repo opts in, so a bespoke repo is never forced to adopt:
-
-- `make/common.mk` — required iff the `Makefile` has `include make/common.mk`.
-- `scripts/bundle-lib.sh` — required iff `scripts/bundle_images.sh` sources it.
-- `frontend/eslint.config.js` — checked only when present (frontends are optional).
-
-So vendored-and-opted-in drift-checks; **missing-but-opted-in fails**; and
-missing-and-not-opted-in is skipped (a legitimately bespoke repo, e.g.
-`data-plane`, `open-webui`). A repo that adopts later becomes subject to the
-check automatically — there is no exemption list to maintain.
-
-## SHA-pinned action refs
-
-Every `uses:` reference in every federation repo must name a **full
-40-character commit SHA**, with the version it corresponds to in a trailing
-comment:
-
-```yaml
-- uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-```
-
-A tag or branch ref resolves at run time, so whoever controls the tag controls
-what executes in CI — and Actions tags are mutable by design. A commit SHA is
-content-addressed and cannot be moved under a consumer. Dependabot understands
-this convention: it reads the trailing comment and rewrites both the SHA and
-the comment when it opens a bump PR, so pinning costs no maintenance. Each
-consumer needs a `github-actions` entry in its `.github/dependabot.yml`, one
-per directory containing workflows or composite actions (Dependabot does not
-descend into `actions/*/action.yml` on its own).
-
-Two forms are exempt, having no mutable remote ref to pin: a local action
-(`./path`, whatever the run already checked out) and a container action pinned
-by image digest (`docker://image@sha256:…`).
-
-[`scripts/validate_action_pins.py`](scripts/validate_action_pins.py) enforces
-this. It scans the consumer's `.github/workflows/*.yml|*.yaml` plus any
-`action.yml|action.yaml` at the root or under `actions/*/`, and fails with a
-`file:line` for each unpinned ref. It runs in the `python-app-ci` lint job, the
-`infra-validation` make-common job, and a dedicated `action-pins` job in
-`node-lib-ci`; a repo with no `.github/workflows/` directory is skipped. Run it
-locally the same way as the other validators:
-
-```bash
-python3 scripts/validate_action_pins.py --consumer-root ../chorus
-```
-
-To resolve a tag to its SHA:
-`git ls-remote https://github.com/actions/checkout refs/tags/v7.0.1`.
-
-## Versioning
-
-Workflows are released as immutable minor tags (`v3.1`, `v3.2`, …) with a
-moving major alias (`v3`) that always points at the latest `v3.x`. Consumers
-pin the **commit SHA** the tag points at, not the tag itself (see
-[SHA-pinned action refs](#sha-pinned-action-refs)) — as the examples above do —
-and keep the minor version in the trailing comment so it stays readable.
-Dependabot's `github-actions` ecosystem opens a bump PR when a newer tag ships,
-rewriting SHA and comment together. The tags remain the release mechanism and
-the unit a bump PR is named after; the major alias is what anything still
-referencing `@v3` resolves through.
-
-Cutting a tag has **two** steps — the second is easy to forget and silently
-strands anything on `@v3` at the old commit:
-
-1. Tag the merge commit with the next minor —
-   `git tag -a v3.12 -m "v3.12: …" && git push origin v3.12`
-2. Move the major alias to the same commit —
-   `git tag -f -a v3 -m "v3: …" && git push origin v3 --force`
-
-Because the `python-app-ci` lint job validates each consumer against the
-strict config that shipped with the tag it runs, a canonical-config change
-and the consumers' mirrored-config updates must land together (see
-[Strict-mode Python config](#strict-mode-python-config)) or the consumers'
-lint jobs fail. The full tag list is on the
-[tags page](https://github.com/nos-tromo/.github/tags).
+Two one-time org-wide prerequisites (the Claude GitHub App and a
+`CLAUDE_CODE_OAUTH_TOKEN` secret) must be in place before it can act; those and
+the optional `trigger_phrase` / `claude_args` inputs are in
+[workflows.md](docs/workflows.md#claude).
 
 ## Working in this repo
 
-A self-CI workflow ([`.github/workflows/self-ci.yml`](.github/workflows/self-ci.yml))
-runs on every PR and push to `main`. It does two things:
-
-1. **Lints `scripts/`** with `ruff check` and `ruff format --check`
-   using the canonical strict config and the same ruff version every
-   consumer gets (pinned in
-   [`precommit-versions.yaml`](configs/python-strict/precommit-versions.yaml)).
-   The validator that enforces strict mode must itself pass strict mode.
-2. **Smoke-tests the validators** against fixtures in
-   [`tests/fixtures/`](tests/fixtures/): an `aligned` fixture (must
-   return 0; also exercises the `target-version` allowed-override and the
-   `[tool.pyrefly]` mirror path) and a `drifted` fixture (must return non-zero),
-   and the equivalent pairs for the vendored-file and action-pin validators.
-   The `pins-smoke` job additionally runs `validate_action_pins.py` against
-   this repo itself, so the hub is held to the policy it ships.
-
-When anything under `configs/python-strict/` changes, the aligned
-fixture must be updated to mirror it — same drift signal real
-consumers get, applied to this repo's own fixture.
-
-To run the validator against a real consumer locally:
+Self-CI ([`.github/workflows/self-ci.yml`](.github/workflows/self-ci.yml)) lints
+`scripts/` with the canonical strict config and smoke-tests every validator
+against aligned and drifted fixtures on each PR. To run one against a real
+consumer (Python 3.11+, uses `tomllib`):
 
 ```bash
 python3 scripts/validate_strict_config.py --consumer-root ../chorus
 ```
 
-Requires Python 3.11+ (uses `tomllib`).
+[docs/maintaining.md](docs/maintaining.md) has the full self-CI contract;
+[CLAUDE.md](CLAUDE.md) the invariants to preserve when changing anything here.
+
+## Documentation
+
+[docs/README.md](docs/README.md) indexes the reference set: per-workflow inputs,
+the commit-SHA pinning policies, the canonical Python config consumers mirror,
+the vendored build glue, the tag ritual, and maintaining this repo. The
+federation map is in [`profile/README.md`](profile/README.md).
