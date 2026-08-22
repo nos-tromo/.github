@@ -284,6 +284,12 @@ all three; `infra-validation` the first two):
 | `scripts/bundle-lib.sh` | [`configs/bundle/`](configs/bundle/) | `scripts/validate_bundle_lib.py` |
 | `frontend/eslint.config.js` | [`configs/frontend-eslint/`](configs/frontend-eslint/) | `scripts/validate_eslint_config.py` |
 
+`common.mk` also carries the two local gates that mirror `python-app-ci`:
+`make verify` (pre-commit + frontend eslint/build) and `make test` (pytest +
+frontend vitest; `make test-backend` / `make test-frontend` run one half —
+the frontend half is skipped when there is no `frontend/`, the backend half
+when the repo sets `TESTS := no`).
+
 Unlike the strict config (merged into `pyproject.toml` and compared
 semantically), these are copied byte-for-byte — the check is an exact file
 comparison, so re-vendor on change rather than hand-editing the copy.
