@@ -23,9 +23,13 @@ strict-Python and vendored-file contracts, versioning. This file is for working
 **Reusable workflows.** Consumers call these as
 `uses: nos-tromo/.github/.github/workflows/<name>.yml@v2`. The doubled `.github/.github/`
 is correct — the repo is *named* `.github`. The main ones:
-- `python-app-ci.yml` — lint (strict-config drift + pre-commit) → pytest matrix → optional docker/frontend jobs.
-- `infra-validation.yml` — yamllint/shellcheck/hadolint/`docker compose config` for infra repos.
-- `node-lib-ci.yml` — pnpm lint/typecheck/test/build for `@infra/ui`, with optional `check-dist`.
+- `python-app-ci.yml` — lint (all six validators + pre-commit) → pytest matrix → optional
+  frontend and docker jobs. `run-tests: false` gives a lint-only run (vllm-service), and
+  skips the docker job with it (`docker` declares `needs: test`).
+- `infra-validation.yml` — yamllint/shellcheck/hadolint/`docker compose config` for infra
+  repos, plus a `make-common` job running the `common.mk` + `bundle-lib.sh` + action-pin checks.
+- `node-lib-ci.yml` — pnpm lint/typecheck/test/build for `@infra/ui`, with optional
+  `check-dist`, plus a dedicated `action-pins` job.
 - `claude.yml` — **manual `@claude` only, no automatic per-PR review** (deliberate: exposes no `prompt` input, wires no `pull_request` trigger).
 - `release-tag.yml` — mints an annotated `vX.Y.Z` tag on merge, wrapping `actions/release-tag`.
   Its self-reference is **ref-locked, not tag-pinned**: it resolves `github.job_workflow_ref`,
