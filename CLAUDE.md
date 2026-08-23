@@ -111,20 +111,21 @@ VER=$(grep '^ruff:' configs/python-strict/precommit-versions.yaml | awk '{print 
 uvx "ruff@$VER" check  --config configs/python-strict/ruff.toml scripts/
 uvx "ruff@$VER" format --config configs/python-strict/ruff.toml --check scripts/
 
-# Bash smoke tests for the bundle library:
-bash tests/bundle_version_smoke.sh
-bash tests/bundle_checkout_smoke.sh
+# Bash behavior smoke tests (all three run in self-ci):
+bash tests/bundle_version_smoke.sh     # bundle-lib-smoke
+bash tests/bundle_checkout_smoke.sh    # bundle-lib-smoke
+bash tests/build_persist_smoke.sh      # make-common-smoke
 
-# Unit tests for the release-tag action (pytest; NOT wired into self-ci — run manually):
+# Unit tests for the release-tag action (pytest; run in self-ci's release-tag-unit job):
 cd actions/release-tag && uv run --with pytest python -m pytest -q
 # single test:
 cd actions/release-tag && uv run --with pytest python -m pytest test_extract_version.py::test_extract_pyproject -q
 ```
 
 `self-ci.yml` runs on every PR/push here and is the source of truth for what "green" means:
-it lints `scripts/`, then runs each validator against an aligned fixture (must pass), a drifted
-fixture (must fail), and the opt-in edge cases. When you add or change a validator, add its
-smoke job there too.
+in eight jobs it lints `scripts/`, runs each validator against an aligned fixture (must pass), a
+drifted fixture (must fail) and the opt-in edge cases, and pytests the release-tag action. When
+you add or change a validator, add its smoke job there too. Full job map: `docs/maintaining.md`.
 
 ## Layout
 
@@ -133,6 +134,7 @@ smoke job there too.
 - `configs/` — canonical shared files: `python-strict/`, `make-common/`, `bundle/`, `frontend-eslint/`.
 - `scripts/` — the stdlib-only drift validators plus the action-pin policy check.
 - `tests/fixtures/` — per-validator `*-aligned` / `*-drifted` / `*-absent` / `*-required-absent` fixtures
-  (the `pins-*` set uses invented placeholder SHAs); `tests/*.sh` are bash smoke tests.
+  (the strict-config set is unprefixed: `aligned` / `drifted` / `half-migrated`; the `pins-*` set uses
+  invented placeholder SHAs); `tests/*.sh` are bash smoke tests.
 - `docs/` — the consumer-facing reference set (`workflows.md`, `pinning.md`, `strict-python.md`, `vendored-files.md`, `versioning.md`, `maintaining.md`), indexed by `docs/README.md`.
 - `docs/superpowers/specs/` and `docs/superpowers/plans/` — dated design specs and implementation plans (this repo uses the brainstorm → spec → plan workflow; read the relevant spec before changing bundle/release behavior).
