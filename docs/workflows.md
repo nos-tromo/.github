@@ -5,6 +5,10 @@ Reference for the five reusable workflows this repo ships. The
 one; this file carries the input schemas, prerequisites and options around
 them.
 
+`.github/workflows/` holds a sixth file, `self-ci.yml`. It is **not** callable —
+it has no `workflow_call` trigger, only `push`/`pull_request` — because it is
+this repo's own CI. See [maintaining.md](maintaining.md).
+
 Two things apply to every caller:
 
 - The doubled `.github/.github/` in a `uses:` path is correct — the repo is
@@ -16,22 +20,47 @@ Two things apply to every caller:
 
 ## python-app-ci
 
-Lint (strict-config drift + pre-commit), a pytest matrix, and optional
-`docker compose build` and React/pnpm frontend jobs, for the four Python apps.
+Four jobs for the Python consumers — the four apps (`chorus`, `docint`,
+`Nextext`, `translator`) and `vllm-service`, which calls it lint-only with
+`run-tests: false`:
 
-Common inputs (full schema at the top of the workflow file):
+- **`lint`** — always runs. Checks this repo out at the ref the caller pinned,
+  then runs all six validators against the consumer
+  ([strict-python.md](strict-python.md), [vendored-files.md](vendored-files.md),
+  [pinning.md](pinning.md)): `validate_strict_config`, `validate_make_common`,
+  `validate_bundle_lib`, `validate_eslint_config`, `validate_action_pins`,
+  `validate_infra_ui_pin`. Then `uv sync` and `pre-commit run --all-files`
+  (ruff + pyrefly, from the consumer's own `.pre-commit-config.yaml`).
+- **`test`** — `needs: lint`; pytest across the `python-versions` matrix.
+  Gated on `run-tests`.
+- **`frontend`** — `needs: lint`; gated on `frontend-build`. Runs
+  `pnpm install --frozen-lockfile`, then `pnpm test` and `pnpm build` (and
+  `pnpm lint` when `frontend-lint` is set).
+- **`docker`** — `needs: test`; gated on `docker-build`.
 
-| Input                     | Default                                              | Purpose                                                                                                            |
-|---------------------------|------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------|
-| `python-versions`         | _(required)_                                         | JSON list. Lint runs against the first version; tests run against all.                                             |
-| `uv-sync-args`            | `--frozen --group dev`                               | Override for repos with extras (e.g. `--frozen --group dev --extra cuda`).                                         |
-| `docker-build`            | `false`                                              | Set `true` to validate `docker compose build`. The job stubs `inference-net`, `data-net`, and a placeholder `.env`. |
-| `docker-compose-files`    | `-f docker/compose.yaml -f docker/compose.override.yaml` | Compose file selection for `docker compose build`.                                                                 |
-| `docker-compose-profiles` | _(empty)_                                            | E.g. `--profile cpu`. Required where compose gates services behind a profile.                                      |
-| `frontend-build`          | `false`                                              | Set `true` for repos with a React/pnpm frontend (e.g. `docint`).                                                   |
-| `frontend-dir`            | `frontend`                                           | Path to the frontend project.                                                                                      |
-| `test-env`                | _(empty)_                                            | Multiline `KEY=VALUE` block for apps whose imports require env at module scope (e.g. `translator`'s `OPENAI_API_BASE`). |
-| `pytest-args`             | _(empty)_                                            | Extra args passed verbatim to `pytest`.                                                                            |
+Inputs — the complete `workflow_call` schema, in declaration order. Only
+`python-versions` is required:
+
+| Input                     | Type      | Default                                                  | Purpose                                                                                                                                      |
+|---------------------------|-----------|----------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------|
+| `python-versions`         | `string`  | _(required)_                                             | JSON list, e.g. `'["3.11", "3.12"]'`. Lint runs against the first element; the test matrix runs against all.                                  |
+| `uv-sync-args`            | `string`  | `--locked --group dev`                                   | Args passed verbatim to `uv sync` in the lint and test jobs. Override for repos with extras (e.g. `--locked --group dev --extra cpu`).        |
+| `docker-build`            | `boolean` | `false`                                                  | Set `true` to validate `docker compose build`. The job stubs `inference-net`, `data-net`, and a placeholder `.env` first.                     |
+| `docker-compose-files`    | `string`  | `-f docker/compose.yaml -f docker/compose.override.yaml` | Compose file selection for `docker compose build`.                                                                                           |
+| `docker-compose-profiles` | `string`  | _(empty)_                                                | E.g. `--profile cpu`. Required where compose gates services behind a profile.                                                                 |
+| `free-disk-space`         | `boolean` | `true`                                                   | Free runner disk before the docker job (large ML images need it). No effect unless `docker-build` is set.                                     |
+| `frontend-build`          | `boolean` | `false`                                                  | Set `true` for repos with a React/pnpm frontend (e.g. `docint`). Note the job runs `pnpm test` as well as `pnpm build`.                       |
+| `frontend-dir`            | `string`  | `frontend`                                               | Path to the frontend project — also where the lint job's `eslint.config.js` and `@infra/ui` pin checks look.                                  |
+| `node-version`            | `string`  | `20`                                                     | Node version for the `frontend` job.                                                                                                         |
+| `pnpm-version`            | `string`  | `9.12.0`                                                 | pnpm version for the `frontend` job, passed to `pnpm/action-setup`. (Unlike `node-lib-ci`, which reads `packageManager` instead.)             |
+| `run-tests`               | `boolean` | `true`                                                   | Run the pytest matrix. `false` gives a lint-only run for repos with no suite, as `vllm-service` does — see the gotcha below.                  |
+| `pytest-args`             | `string`  | _(empty)_                                                | Extra args passed verbatim to `pytest`.                                                                                                      |
+| `test-env`                | `string`  | _(empty)_                                                | Multiline `KEY=VALUE` block appended to `$GITHUB_ENV` before pytest, for apps whose imports require env at module scope (e.g. `translator`'s `OPENAI_API_BASE`). |
+| `frontend-lint`           | `boolean` | `false`                                                  | Also run `pnpm lint` in the `frontend` job. Enable once the repo vendors the canonical `eslint.config.js` and passes lint.                    |
+
+**`run-tests: false` also disables the docker job.** `docker` declares
+`needs: test`, and a skipped dependency skips the dependent — so
+`docker-build: true` is only meaningful with `run-tests` left at `true`.
 
 A consumer with a `frontend/` must also pin `@infra/ui` correctly, or both the
 `frontend` and `docker` jobs fail — see
@@ -39,39 +68,56 @@ A consumer with a `frontend/` must also pin `@infra/ui` correctly, or both the
 
 ## infra-validation
 
-yamllint, shellcheck, hadolint, and `docker compose config` validation for the
-infra repos.
+Five jobs for the infra repos (`vllm-service`, `data-plane`, `obs-plane`,
+`edge-plane`, `open-webui-service`, `deploy`):
 
-Inputs:
+- **`yamllint`** — `yamllint -d "{extends: relaxed, …}"` over the whole repo.
+- **`shellcheck`** — over `shell-scripts-glob`; skips when nothing matches.
+- **`hadolint`** — over `dockerfiles-glob`; skips when nothing matches.
+- **`compose-config`** — `docker compose config --quiet`, after stubbing the
+  external networks/volumes and a placeholder `.env`. Skipped when
+  `compose-files` is empty.
+- **`make-common`** — the vendored-file and action-pin drift checks, run the
+  same ref-locked way as `python-app-ci`'s lint job:
+  `validate_make_common`, `validate_bundle_lib`, `validate_action_pins`. Each
+  skips a repo that has not opted in ([vendored-files.md](vendored-files.md)).
 
-| Input                | Default              | Purpose                                                                            |
-|----------------------|----------------------|------------------------------------------------------------------------------------|
-| `compose-files`      | _(empty)_            | Space-separated `-f` arguments for `docker compose config`. Omit to skip the `compose-config` job (infra repos that own no compose, e.g. `deploy`). |
-| `compose-profiles`   | _(empty)_            | Space-separated `--profile` arguments.                                             |
-| `dockerfiles-glob`   | `docker/Dockerfile.*`| Glob for hadolint (fails only on `error`-level findings).                          |
-| `shell-scripts-glob` | `scripts/*.sh`       | Glob for shellcheck.                                                               |
+Inputs — the complete `workflow_call` schema. None is required:
+
+| Input                | Type     | Default              | Purpose                                                                            |
+|----------------------|----------|----------------------|------------------------------------------------------------------------------------|
+| `compose-files`      | `string` | _(empty)_            | Space-separated `-f` arguments for `docker compose config`. Omit to skip the `compose-config` job (infra repos that own no compose, e.g. `deploy`). |
+| `compose-profiles`   | `string` | _(empty)_            | Space-separated `--profile` arguments.                                             |
+| `dockerfiles-glob`   | `string` | `docker/Dockerfile.*`| Glob for hadolint (fails only on `error`-level findings).                          |
+| `shell-scripts-glob` | `string` | `scripts/*.sh`       | Glob for shellcheck.                                                               |
 
 ## node-lib-ci
 
-Runs `pnpm install --frozen-lockfile`, then lint, typecheck, test, and build.
-The pnpm version comes from the package's `packageManager` field. With
-`check-dist: true`, a final step re-runs `pnpm build` and fails if the committed
-output dir is no longer in sync with source — the guard for a library that ships
-a prebuilt `dist/` in git, as `@infra/ui` does (every app frontend consumes it
-as a commit-SHA-pinned tarball with no install-time rebuild).
+Two jobs, for the shared Node/TypeScript library (`infra-ui`):
 
-Inputs:
+- **`ci`** — `pnpm install --frozen-lockfile`, then lint, typecheck, test and
+  build, each behind its own toggle. The pnpm version comes from the package's
+  `packageManager` field, not an input. With `check-dist: true`, a final step
+  fails if the `pnpm build` it just ran left the committed output dir dirty —
+  the guard for a library that ships a prebuilt `dist/` in git, as `@infra/ui`
+  does (every app frontend consumes it as a commit-SHA-pinned tarball with no
+  install-time rebuild).
+- **`action-pins`** — `validate_action_pins.py` against the consumer's own
+  workflows, ref-locked to the pinned hub revision
+  ([pinning.md](pinning.md#action-refs)).
 
-| Input               | Default | Purpose                                                                 |
-|---------------------|---------|-------------------------------------------------------------------------|
-| `node-version`      | `20`    | Node version for the run.                                               |
-| `working-directory` | `.`     | Package dir (where `package.json` + `pnpm-lock.yaml` live).             |
-| `run-lint`          | `true`  | Run `pnpm lint`.                                                         |
-| `run-typecheck`     | `true`  | Run `pnpm typecheck`.                                                    |
-| `run-test`          | `true`  | Run `pnpm test`.                                                         |
-| `run-build`         | `true`  | Run `pnpm build` (implied when `check-dist` is set).                     |
-| `check-dist`        | `false` | After build, fail if the committed `dist-dir` drifts from a fresh build. |
-| `dist-dir`          | `dist`  | Output dir checked by `check-dist`.                                      |
+Inputs — the complete `workflow_call` schema. None is required:
+
+| Input               | Type      | Default | Purpose                                                                 |
+|---------------------|-----------|---------|-------------------------------------------------------------------------|
+| `node-version`      | `string`  | `20`    | Node version for the run.                                               |
+| `working-directory` | `string`  | `.`     | Package dir (where `package.json` + `pnpm-lock.yaml` live).             |
+| `run-lint`          | `boolean` | `true`  | Run `pnpm lint`.                                                         |
+| `run-typecheck`     | `boolean` | `true`  | Run `pnpm typecheck`.                                                    |
+| `run-test`          | `boolean` | `true`  | Run `pnpm test`.                                                         |
+| `run-build`         | `boolean` | `true`  | Run `pnpm build` (implied when `check-dist` is set).                     |
+| `check-dist`        | `boolean` | `false` | After build, fail if the committed `dist-dir` drifts from a fresh build. |
+| `dist-dir`          | `string`  | `dist`  | Output dir checked by `check-dist`.                                      |
 
 ## claude
 
@@ -88,12 +134,12 @@ One-time prerequisites (org-wide):
    direct Claude API instead? Forward `ANTHROPIC_API_KEY` and swap the input —
    see the workflow header.)
 
-Optional inputs:
+Inputs — the complete `workflow_call` schema. Neither is required:
 
-| Input            | Default   | Purpose                                                         |
-|------------------|-----------|-----------------------------------------------------------------|
-| `trigger_phrase` | `@claude` | Phrase that summons Claude in an issue/PR/comment.              |
-| `claude_args`    | _(empty)_ | Verbatim Claude Code CLI args, e.g. `--model … --max-turns 10`. |
+| Input            | Type     | Default   | Purpose                                                         |
+|------------------|----------|-----------|-----------------------------------------------------------------|
+| `trigger_phrase` | `string` | `@claude` | Phrase that summons Claude in an issue/PR/comment.              |
+| `claude_args`    | `string` | _(empty)_ | Verbatim Claude Code CLI args, e.g. `--model … --max-turns 10`. |
 
 There is intentionally **no automatic per-PR review**: the workflow exposes no
 `prompt` input and wires no `pull_request` trigger, so `claude-code-action@v1`
@@ -112,15 +158,15 @@ reachable from `HEAD` and fails the run if it is not greater (disable with
 `enforce-increase: false`). The tag is always **annotated** — `bundle-lib.sh`
 and `git describe` rely on that.
 
-Inputs:
+Inputs — the complete `workflow_call` schema. None is required:
 
-| Input              | Default          | Purpose                                                             |
-|--------------------|------------------|---------------------------------------------------------------------|
-| `version-file`     | `pyproject.toml` | Path to the file holding the declared version.                      |
-| `version-source`   | `pyproject`      | How to read it: `pyproject` \| `plain` \| `package-json`.            |
-| `tag-prefix`       | `v`              | Tag name prefix.                                                    |
-| `enforce-increase` | `true`           | Fail if the declared version is not greater than the latest tag.    |
-| `dry-run`          | `false`          | Compute and log the tag but do not create it.                       |
+| Input              | Type      | Default          | Purpose                                                             |
+|--------------------|-----------|------------------|---------------------------------------------------------------------|
+| `version-file`     | `string`  | `pyproject.toml` | Path to the file holding the declared version.                      |
+| `version-source`   | `string`  | `pyproject`      | How to read it: `pyproject` \| `plain` \| `package-json`.            |
+| `tag-prefix`       | `string`  | `v`              | Tag name prefix.                                                    |
+| `enforce-increase` | `boolean` | `true`           | Fail if the declared version is not greater than the latest tag.    |
+| `dry-run`          | `boolean` | `false`          | Compute and log the tag but do not create it.                       |
 
 Repos with no `pyproject.toml` point at their own version file instead — a
 one-line `VERSION` file with `version-source: plain`, or a `package.json` with
