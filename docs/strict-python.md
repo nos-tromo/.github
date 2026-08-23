@@ -14,8 +14,17 @@ Consumers must mirror, exactly:
    The only key a consumer may override is `target-version` (each repo
    has a different Python floor).
 2. **`[tool.pyrefly]` in `pyproject.toml`** ← [`pyrefly.toml`](../configs/python-strict/pyrefly.toml).
-3. **`rev:` for the ruff and pyrefly hooks in `.pre-commit-config.yaml`**
-   ← [`precommit-versions.yaml`](../configs/python-strict/precommit-versions.yaml).
+3. **`rev:` for the ruff hook in `.pre-commit-config.yaml`** ← the `ruff:`
+   entry in [`precommit-versions.yaml`](../configs/python-strict/precommit-versions.yaml).
+4. **The pyrefly hook is a `local` hook, not a pinned `rev:`** — it must run
+   `entry: uv run pyrefly check`, and the version is pinned in the dev
+   dependency group as `pyrefly==<version>`, matching the `pyrefly:` entry in
+   `precommit-versions.yaml`. The validator checks the dev-dep pin, not a hook
+   rev. (Why: pyrefly must see every dependency's types, and pre-commit's
+   isolated env cannot supply them — a `local` hook uses the project venv.)
+5. **No mypy leftovers** — a `[tool.mypy]` block, a `mypy` dev dependency or a
+   mypy pre-commit hook each fail the check. A half-migration that leaves both
+   type-checkers wired up must not pass silently.
 
 To check alignment locally from a consumer repo:
 
@@ -23,8 +32,8 @@ To check alignment locally from a consumer repo:
 python3 ../.github/scripts/validate_strict_config.py
 ```
 
-(adjust the path; or pass `--consumer-root`). Exits 0 on alignment, 1 on
-drift, with concrete entries on stderr.
+(adjust the path; or pass `--consumer-root`, which defaults to `.`). Exits 0
+on alignment, 1 on drift, with concrete entries on stderr.
 
 A few intentional choices worth knowing:
 
