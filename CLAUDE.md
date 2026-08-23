@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this repo is
 
 `nos-tromo/.github` — the **public** org-wide CI + shared-build-glue repo for the
-`nos-tromo` federation (~11 repos; see `profile/README.md` for the map). It ships
+`nos-tromo` federation (~12 repos; see `profile/README.md` for the map). It ships
 no application code. It provides two things to consumer repos:
 
 1. **Reusable GitHub Actions workflows** (`.github/workflows/*.yml`, `on: workflow_call`).
@@ -21,11 +21,17 @@ strict-Python and vendored-file contracts, versioning. This file is for working
 ## The two core patterns
 
 **Reusable workflows.** Consumers call these as
-`uses: nos-tromo/.github/.github/workflows/<name>.yml@v2`. The doubled `.github/.github/`
-is correct — the repo is *named* `.github`. The main ones:
-- `python-app-ci.yml` — lint (strict-config drift + pre-commit) → pytest matrix → optional docker/frontend jobs.
-- `infra-validation.yml` — yamllint/shellcheck/hadolint/`docker compose config` for infra repos.
-- `node-lib-ci.yml` — pnpm lint/typecheck/test/build for `@infra/ui`, with optional `check-dist`.
+`uses: nos-tromo/.github/.github/workflows/<name>.yml@<40-hex-sha>  # v3.14` — the
+doubled `.github/.github/` is correct (the repo is *named* `.github`), and the ref is
+a full commit SHA, never a tag, per this repo's own pin policy (`docs/pinning.md`).
+All five:
+- `python-app-ci.yml` — lint (all six validators + pre-commit) → pytest matrix → optional
+  frontend and docker jobs. `run-tests: false` gives a lint-only run (vllm-service), and
+  skips the docker job with it (`docker` declares `needs: test`).
+- `infra-validation.yml` — yamllint/shellcheck/hadolint/`docker compose config` for infra
+  repos, plus a `make-common` job running the `common.mk` + `bundle-lib.sh` + action-pin checks.
+- `node-lib-ci.yml` — pnpm lint/typecheck/test/build for `@infra/ui`, with optional
+  `check-dist`, plus a dedicated `action-pins` job.
 - `claude.yml` — **manual `@claude` only, no automatic per-PR review** (deliberate: exposes no `prompt` input, wires no `pull_request` trigger).
 - `release-tag.yml` — mints an annotated `vX.Y.Z` tag on merge, wrapping `actions/release-tag`.
   Its self-reference is **ref-locked, not tag-pinned**: it resolves `github.job_workflow_ref`,
@@ -76,10 +82,12 @@ These are the non-obvious rules that keep the system coherent:
 - **Validators are stdlib-only.** `scripts/*.py` hand-roll their YAML/pre-commit parsing rather
   than importing PyYAML, so they run in any consumer's environment with no install. Keep it that
   way. They require Python 3.11+ (`tomllib`).
-- **Two-step release.** Cutting a version is (1) tag the merge commit with the next immutable
-  minor (`git tag -a v2.10 -m … && git push origin v2.10`), then (2) force-move the major alias
-  (`git tag -f -a v2 -m … && git push origin v2 --force`). Forgetting step 2 silently strands
-  `@v2` consumers on the old commit.
+- **Two-step release.** The hub is hand-tagged (it wires no `release-tag.yml` caller of its
+  own; git tags are the only version record — there is no `VERSION` file). Cutting a version is
+  (1) tag the merge commit with the next immutable minor (`git tag -a v3.15 -m … &&
+  git push origin v3.15`), then (2) force-move the major alias (`git tag -f -a v3 -m … &&
+  git push origin v3 --force`). Forgetting step 2 silently strands `@v3` consumers on the old
+  commit. Check the current latest with `git tag --sort=-v:refname | head -1`.
 - **Annotated tags are load-bearing.** `bundle-lib.sh` and `actions/release-tag` rely on
   `git describe` seeing *annotated* tags only (no `--tags`), so a stray lightweight tag can never
   be mistaken for a release. Always tag with `-a`.
@@ -107,20 +115,21 @@ VER=$(grep '^ruff:' configs/python-strict/precommit-versions.yaml | awk '{print 
 uvx "ruff@$VER" check  --config configs/python-strict/ruff.toml scripts/
 uvx "ruff@$VER" format --config configs/python-strict/ruff.toml --check scripts/
 
-# Bash smoke tests for the bundle library:
-bash tests/bundle_version_smoke.sh
-bash tests/bundle_checkout_smoke.sh
+# Bash behavior smoke tests (all three run in self-ci):
+bash tests/bundle_version_smoke.sh     # bundle-lib-smoke
+bash tests/bundle_checkout_smoke.sh    # bundle-lib-smoke
+bash tests/build_persist_smoke.sh      # make-common-smoke
 
-# Unit tests for the release-tag action (pytest; NOT wired into self-ci — run manually):
+# Unit tests for the release-tag action (pytest; run in self-ci's release-tag-unit job):
 cd actions/release-tag && uv run --with pytest python -m pytest -q
 # single test:
 cd actions/release-tag && uv run --with pytest python -m pytest test_extract_version.py::test_extract_pyproject -q
 ```
 
 `self-ci.yml` runs on every PR/push here and is the source of truth for what "green" means:
-it lints `scripts/`, then runs each validator against an aligned fixture (must pass), a drifted
-fixture (must fail), and the opt-in edge cases. When you add or change a validator, add its
-smoke job there too.
+in eight jobs it lints `scripts/`, runs each validator against an aligned fixture (must pass), a
+drifted fixture (must fail) and the opt-in edge cases, and pytests the release-tag action. When
+you add or change a validator, add its smoke job there too. Full job map: `docs/maintaining.md`.
 
 ## Layout
 
@@ -129,6 +138,7 @@ smoke job there too.
 - `configs/` — canonical shared files: `python-strict/`, `make-common/`, `bundle/`, `frontend-eslint/`.
 - `scripts/` — the stdlib-only drift validators plus the action-pin policy check.
 - `tests/fixtures/` — per-validator `*-aligned` / `*-drifted` / `*-absent` / `*-required-absent` fixtures
-  (the `pins-*` set uses invented placeholder SHAs); `tests/*.sh` are bash smoke tests.
+  (the strict-config set is unprefixed: `aligned` / `drifted` / `half-migrated`; the `pins-*` set uses
+  invented placeholder SHAs); `tests/*.sh` are bash smoke tests.
 - `docs/` — the consumer-facing reference set (`workflows.md`, `pinning.md`, `strict-python.md`, `vendored-files.md`, `versioning.md`, `maintaining.md`), indexed by `docs/README.md`.
 - `docs/superpowers/specs/` and `docs/superpowers/plans/` — dated design specs and implementation plans (this repo uses the brainstorm → spec → plan workflow; read the relevant spec before changing bundle/release behavior).

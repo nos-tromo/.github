@@ -48,6 +48,7 @@ flowchart TB
 
   obs -.->|scrapes| vllm
   obs -.->|scrapes| data
+  obs -.->|scrapes| Apps
 ```
 
 Three network seams keep the tiers apart — `inference-net` (apps ↔ inference), `data-net` (apps ↔ state), `edge-net` (gateway ↔ app frontends) — and the gateway joins only the last of them.
