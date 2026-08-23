@@ -12,9 +12,11 @@ no application code. It provides two things to consumer repos:
 2. **Canonical shared config/library files** (`configs/`) that consumers mirror,
    drift-checked in CI by `scripts/validate_*.py`.
 
-`README.md` is the consumer-facing manual (input schemas, usage snippets, `@infra/ui`
-pinning, Claude-mention setup). This file is for working *inside* this repo — read
-the README for consumer-side detail rather than duplicating it here.
+`README.md` is the consumer-facing entry point: the inventory plus one copyable caller
+snippet per workflow. `docs/` holds the reference behind it — input schemas
+(`docs/workflows.md`), the two commit-SHA pinning policies (`docs/pinning.md`), the
+strict-Python and vendored-file contracts, versioning. This file is for working
+*inside* this repo — read those for consumer-side detail rather than duplicating it here.
 
 ## The two core patterns
 
@@ -128,4 +130,5 @@ smoke job there too.
 - `scripts/` — the stdlib-only drift validators plus the action-pin policy check.
 - `tests/fixtures/` — per-validator `*-aligned` / `*-drifted` / `*-absent` / `*-required-absent` fixtures
   (the `pins-*` set uses invented placeholder SHAs); `tests/*.sh` are bash smoke tests.
+- `docs/` — the consumer-facing reference set (`workflows.md`, `pinning.md`, `strict-python.md`, `vendored-files.md`, `versioning.md`, `maintaining.md`), indexed by `docs/README.md`.
 - `docs/superpowers/specs/` and `docs/superpowers/plans/` — dated design specs and implementation plans (this repo uses the brainstorm → spec → plan workflow; read the relevant spec before changing bundle/release behavior).

@@ -77,7 +77,7 @@ Three network seams keep the tiers apart — `inference-net` (apps ↔ inference
 |---|---|
 | **[deploy](https://github.com/nos-tromo/deploy)** | Federation lifecycle layer — ordered, health-gated single-host bring-up (inference → state → obs → apps → edge) of the whole stack, delegating to each member's own make/compose. |
 | **[.github](https://github.com/nos-tromo/.github)** | Org-wide CI + shared build glue: reusable GitHub Actions workflows, the canonical strict `ruff`/`pyrefly` config, and the vendored `make/common.mk` + `bundle-lib.sh` libraries every consumer mirrors — all drift-checked in CI. |
-| **[infra-ui](https://github.com/nos-tromo/infra-ui)** | Shared React design system (`@infra/ui`) — dark, minimal Tailwind v4 tokens + UI primitives (Button, Card, Input, Badge, Spinner, Banner, …) the React SPAs consume as a tag-pinned pnpm Git dependency, shipping a committed prebuilt `dist/` for deterministic types across consumers. |
+| **[infra-ui](https://github.com/nos-tromo/infra-ui)** | Shared React design system (`@infra/ui`) — minimal Tailwind v4 tokens + UI primitives (Button, Card, Input, Badge, Spinner, Banner, …), light by default with dark on an OS preference or the in-app toggle, consumed by the React SPAs as a commit-SHA-pinned pnpm tarball dependency, shipping a committed prebuilt `dist/` for deterministic types across consumers. |
 
 ### Other public projects
 
