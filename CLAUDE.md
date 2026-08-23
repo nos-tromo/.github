@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this repo is
 
 `nos-tromo/.github` — the **public** org-wide CI + shared-build-glue repo for the
-`nos-tromo` federation (~11 repos; see `profile/README.md` for the map). It ships
+`nos-tromo` federation (~12 repos; see `profile/README.md` for the map). It ships
 no application code. It provides two things to consumer repos:
 
 1. **Reusable GitHub Actions workflows** (`.github/workflows/*.yml`, `on: workflow_call`).
@@ -21,8 +21,10 @@ strict-Python and vendored-file contracts, versioning. This file is for working
 ## The two core patterns
 
 **Reusable workflows.** Consumers call these as
-`uses: nos-tromo/.github/.github/workflows/<name>.yml@v2`. The doubled `.github/.github/`
-is correct — the repo is *named* `.github`. The main ones:
+`uses: nos-tromo/.github/.github/workflows/<name>.yml@<40-hex-sha>  # v3.14` — the
+doubled `.github/.github/` is correct (the repo is *named* `.github`), and the ref is
+a full commit SHA, never a tag, per this repo's own pin policy (`docs/pinning.md`).
+All five:
 - `python-app-ci.yml` — lint (all six validators + pre-commit) → pytest matrix → optional
   frontend and docker jobs. `run-tests: false` gives a lint-only run (vllm-service), and
   skips the docker job with it (`docker` declares `needs: test`).
@@ -80,10 +82,12 @@ These are the non-obvious rules that keep the system coherent:
 - **Validators are stdlib-only.** `scripts/*.py` hand-roll their YAML/pre-commit parsing rather
   than importing PyYAML, so they run in any consumer's environment with no install. Keep it that
   way. They require Python 3.11+ (`tomllib`).
-- **Two-step release.** Cutting a version is (1) tag the merge commit with the next immutable
-  minor (`git tag -a v2.10 -m … && git push origin v2.10`), then (2) force-move the major alias
-  (`git tag -f -a v2 -m … && git push origin v2 --force`). Forgetting step 2 silently strands
-  `@v2` consumers on the old commit.
+- **Two-step release.** The hub is hand-tagged (it wires no `release-tag.yml` caller of its
+  own; git tags are the only version record — there is no `VERSION` file). Cutting a version is
+  (1) tag the merge commit with the next immutable minor (`git tag -a v3.15 -m … &&
+  git push origin v3.15`), then (2) force-move the major alias (`git tag -f -a v3 -m … &&
+  git push origin v3 --force`). Forgetting step 2 silently strands `@v3` consumers on the old
+  commit. Check the current latest with `git tag --sort=-v:refname | head -1`.
 - **Annotated tags are load-bearing.** `bundle-lib.sh` and `actions/release-tag` rely on
   `git describe` seeing *annotated* tags only (no `--tags`), so a stray lightweight tag can never
   be mistaken for a release. Always tag with `-a`.
