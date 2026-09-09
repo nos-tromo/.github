@@ -34,9 +34,10 @@ All five:
   `check-dist`, plus a dedicated `action-pins` job.
 - `claude.yml` — **manual `@claude` only, no automatic per-PR review** (deliberate: exposes no `prompt` input, wires no `pull_request` trigger).
 - `release-tag.yml` — mints an annotated `vX.Y.Z` tag on merge, wrapping `actions/release-tag`.
-  Its self-reference is **ref-locked, not tag-pinned**: it resolves `github.job_workflow_ref`,
-  checks this repo out at that exact ref, and runs `./.nos-tromo-github-ref/actions/release-tag`.
-  Workflow and composite action are therefore always the same revision, with no mutable tag between.
+  Its self-reference is **ref-locked, not tag-pinned**: it recovers the pinned revision from
+  the caller's own `uses:` line, checks this repo out at that exact ref, and runs
+  `./.nos-tromo-github-ref/actions/release-tag`. Workflow and composite action are therefore
+  always the same revision, with no mutable tag between.
 
 **Canonical config + drift-check.** Canonical files live in `configs/`; each has a
 validator in `scripts/` that fails CI on drift. Two comparison flavors:
@@ -66,10 +67,18 @@ frontend or without the dep. Runs in `python-app-ci`'s lint job beside the actio
 These are the non-obvious rules that keep the system coherent:
 
 - **Ref-locked validation.** `python-app-ci.yml`'s lint job checks out *this repo at the
-  same ref the workflow is running at* (`github.job_workflow_ref`, not `github.workflow_ref`)
-  and validates the consumer against it. So a consumer pinned to `@vN` is validated against
-  the canonical config that shipped with `vN`. **Consequence:** a canonical-config change and
-  the consumers' mirrored updates must land/tag *together*, or consumers' lint jobs break.
+  revision the consumer pinned* and validates the consumer against it. So a consumer pinned to
+  `@vN` is validated against the canonical config that shipped with `vN`. **Consequence:** a
+  canonical-config change and the consumers' mirrored updates must land/tag *together*, or
+  consumers' lint jobs break.
+  The revision is recovered by reading the pin out of the caller's own `uses:` line, via
+  `github.workflow_ref`. It is deliberately **not** `github.job_workflow_ref` /
+  `job_workflow_sha`: those name this workflow's own revision, which is what you want, but both
+  arrive empty on the runner. Stripping `@` from an empty value yielded `""`, and
+  `actions/checkout` treats that as "default branch" — so for months every consumer was in fact
+  validated against `.github` **main**, not its pin. Nothing showed it until a canonical file
+  moved on main and every consumer went red at once. The resolve step now fails loudly instead
+  of falling back.
 - **Fixtures mirror canonical.** When you change anything under `configs/python-strict/`,
   update `tests/fixtures/aligned/` to match — it's the same drift signal real consumers get,
   applied to this repo's own smoke test. Likewise `tests/fixtures/{mk,bundle,eslint}-aligned/`

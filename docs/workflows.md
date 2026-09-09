@@ -178,7 +178,10 @@ one-line `VERSION` file with `version-source: plain`, or a `package.json` with
       version-source: plain
 ```
 
-The workflow is **ref-locked, not tag-pinned**: it resolves
-`github.job_workflow_ref`, checks this repo out at that exact ref, and runs the
-composite action from there — so workflow and action are always the same
-revision, with no mutable tag in between.
+The workflow is **ref-locked, not tag-pinned**: it recovers the pinned revision
+from the caller's own `uses:` line, checks this repo out at that exact ref, and
+runs the composite action from there — so workflow and action are always the
+same revision, with no mutable tag in between. It reads the pin via
+`github.workflow_ref` rather than `github.job_workflow_ref`, because the latter
+arrives empty on the runner; an empty ref makes `actions/checkout` silently use
+the default branch, which is the bug this replaces.

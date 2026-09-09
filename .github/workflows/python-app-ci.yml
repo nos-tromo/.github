@@ -84,16 +84,38 @@ jobs:
       - name: Resolve canonical strict-config ref
         id: canonical-ref
         env:
-          # github.job_workflow_ref is e.g.
-          #   nos-tromo/.github/.github/workflows/python-app-ci.yml@<sha>
-          # (or @refs/tags/vN for a tag-pinned caller).
-          # Unlike github.workflow_ref (which points to the *calling* workflow,
-          # e.g. consumer-repo/.github/workflows/ci.yml@refs/pull/N/merge),
-          # github.job_workflow_ref points to this reusable workflow itself.
-          # We strip everything up to and including the '@' to recover the ref.
-          WORKFLOW_REF: ${{ github.job_workflow_ref }}
+          # github.job_workflow_ref / job_workflow_sha would name this reusable
+          # workflow's own revision, but both arrive EMPTY on this runner. The
+          # previous code stripped everything up to '@' from that empty value and
+          # handed "" to actions/checkout, which silently falls back to this
+          # repo's DEFAULT BRANCH. Every consumer was therefore validated against
+          # whatever sat on .github main, never the revision it pinned — and that
+          # stayed invisible for as long as main happened to match what consumers
+          # had vendored. The moment a canonical file moved on main, every
+          # consumer went red at once.
+          #
+          # github.workflow_ref IS populated and names the *calling* workflow
+          # file, so recover the pinned revision from the caller's own uses: line.
+          # Fail rather than guess: silently comparing against main is precisely
+          # the failure mode this replaces.
+          CALLER_REF: ${{ github.workflow_ref }}
         run: |
-          ref="${WORKFLOW_REF##*@}"
+          caller="${CALLER_REF%@*}"
+          caller="${caller#*/}"
+          caller="${caller#*/}"
+          ref=""
+          if [ -f "$caller" ]; then
+            ref=$(grep -oE "nos-tromo/\.github/\.github/workflows/python-app-ci\.yml@[^[:space:]\"']+" "$caller" \
+                  | head -1 | sed 's/.*@//')
+          fi
+          if [ -z "$ref" ]; then
+            echo "::error::Cannot determine which nos-tromo/.github revision to check out."
+            echo "::error::Looked for a python-app-ci.yml pin in: $caller"
+            echo "::error::Refusing to fall back to the default branch — that would validate this"
+            echo "::error::repo against whatever is on .github main, not the revision it pinned."
+            exit 1
+          fi
+          echo "canonical nos-tromo/.github revision: $ref"
           echo "ref=$ref" >> "$GITHUB_OUTPUT"
       - name: Checkout canonical strict-config
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
