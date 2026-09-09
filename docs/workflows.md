@@ -51,7 +51,7 @@ Inputs — the complete `workflow_call` schema, in declaration order. Only
 | `free-disk-space`         | `boolean` | `true`                                                   | Free runner disk before the docker job (large ML images need it). No effect unless `docker-build` is set.                                     |
 | `frontend-build`          | `boolean` | `false`                                                  | Set `true` for repos with a React/pnpm frontend (e.g. `docint`). Note the job runs `pnpm test` as well as `pnpm build`.                       |
 | `frontend-dir`            | `string`  | `frontend`                                               | Path to the frontend project — also where the lint job's `eslint.config.js` and `@infra/ui` pin checks look.                                  |
-| `node-version`            | `string`  | `20`                                                     | Node version for the `frontend` job.                                                                                                         |
+| `node-version`            | `string`  | `22`                                                     | Node version for the `frontend` job.                                                                                                         |
 | `pnpm-version`            | `string`  | `9.12.0`                                                 | pnpm version for the `frontend` job, passed to `pnpm/action-setup`. (Unlike `node-lib-ci`, which reads `packageManager` instead.)             |
 | `run-tests`               | `boolean` | `true`                                                   | Run the pytest matrix. `false` gives a lint-only run for repos with no suite, as `vllm-service` does — see the gotcha below.                  |
 | `pytest-args`             | `string`  | _(empty)_                                                | Extra args passed verbatim to `pytest`.                                                                                                      |
@@ -110,7 +110,7 @@ Inputs — the complete `workflow_call` schema. None is required:
 
 | Input               | Type      | Default | Purpose                                                                 |
 |---------------------|-----------|---------|-------------------------------------------------------------------------|
-| `node-version`      | `string`  | `20`    | Node version for the run.                                               |
+| `node-version`      | `string`  | `22`    | Node version for the run.                                               |
 | `working-directory` | `string`  | `.`     | Package dir (where `package.json` + `pnpm-lock.yaml` live).             |
 | `run-lint`          | `boolean` | `true`  | Run `pnpm lint`.                                                         |
 | `run-typecheck`     | `boolean` | `true`  | Run `pnpm typecheck`.                                                    |
