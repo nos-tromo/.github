@@ -48,6 +48,31 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          # Keep in sync with the uv-version default in python-app-ci.yml; the
+          # "Assert uv pin matches python-app-ci" step below fails on drift.
+          version: 0.12.11
+      - name: Assert uv pin matches python-app-ci
+        env:
+          # The literal this job's setup-uv step pins. Consumers get their uv from
+          # python-app-ci's uv-version default, so a hub bump that misses one of the
+          # two places would leave the hub testing its validators on a different uv
+          # than every consumer runs. Cheap to assert, invisible when it drifts.
+          SELF_CI_UV: '0.12.11'
+        run: |
+          default=$(awk '/^      uv-version:/{f=1} f && /^        default:/{
+            gsub(/^        default: *|'"'"'/, ""); print; exit}' \
+            .github/workflows/python-app-ci.yml)
+          if [ -z "$default" ]; then
+            echo "::error::Could not read the uv-version default from .github/workflows/python-app-ci.yml"
+            exit 1
+          fi
+          if [ "$default" != "$SELF_CI_UV" ]; then
+            echo "::error::uv pin drift: self-ci.yml pins $SELF_CI_UV, python-app-ci.yml defaults to $default"
+            echo "::error::Bump both together (see the uv-version comment in python-app-ci.yml)."
+            exit 1
+          fi
+          echo "uv pin OK: $default"
       - name: Read pinned ruff version
         id: ruff
         run: |
@@ -238,6 +263,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          # Keep in sync with the uv-version default in python-app-ci.yml; the
+          # "Assert uv pin matches python-app-ci" step below fails on drift.
+          version: 0.12.11
       - name: Pytest
         working-directory: actions/release-tag
         run: uv run --python 3.11 --with pytest python -m pytest -q

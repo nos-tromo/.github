@@ -16,6 +16,28 @@ on:
         required: false
         type: string
         default: '--locked --group dev'
+      uv-version:
+        # Must stay an EXACT version — the point is a deterministic toolchain: every
+        # repo runs one known uv, and two runs of the same commit cannot pick up
+        # whatever uv shipped in between. `latest` or a range gives that away.
+        #
+        # It does NOT make setup-uv network-independent, and nothing here should be
+        # written as if it does. An exact version skips the manifest lookup that
+        # *resolves* the version, but the download path still reads the same
+        # astral-sh/versions manifest to find the artifact URL, and setup-uv caches
+        # that response in-process — so `latest` and an exact pin both cost exactly
+        # one manifest fetch. Transient manifest failures are setup-uv's problem to
+        # retry (v10.0.1+ does, three attempts with backoff), not this input's.
+        #
+        # Bumping is deliberate and hub-side: edit this default, mirror it into
+        # self-ci.yml (the lint-validator job asserts the two match), cut a hub tag;
+        # consumers pick it up as a Dependabot pin bump. Callers should NOT restate
+        # this — overriding is an escape hatch for a bad uv release, not per-repo
+        # configuration.
+        description: 'Exact uv version installed by setup-uv in the lint and test jobs. Exact only — a range or `latest` gives up the deterministic toolchain.'
+        required: false
+        type: string
+        default: '0.12.11'
       docker-build:
         description: 'Run `docker compose build` to validate that the app images build.'
         required: false
@@ -150,6 +172,7 @@ jobs:
         run: python3 .nos-tromo-github-ref/scripts/validate_infra_ui_pin.py --frontend-dir "$FRONTEND_DIR"
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
+          version: ${{ inputs.uv-version }}
           enable-cache: true
           cache-dependency-glob: '**/uv.lock'
       - name: Pick lint Python version
@@ -184,6 +207,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
+          version: ${{ inputs.uv-version }}
           enable-cache: true
           cache-dependency-glob: '**/uv.lock'
       - name: Pin Python

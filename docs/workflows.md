@@ -45,6 +45,7 @@ Inputs — the complete `workflow_call` schema, in declaration order. Only
 |---------------------------|-----------|----------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------|
 | `python-versions`         | `string`  | _(required)_                                             | JSON list, e.g. `'["3.11", "3.12"]'`. Lint runs against the first element; the test matrix runs against all.                                  |
 | `uv-sync-args`            | `string`  | `--locked --group dev`                                   | Args passed verbatim to `uv sync` in the lint and test jobs. Override for repos with extras (e.g. `--locked --group dev --extra cpu`).        |
+| `uv-version`              | `string`  | `0.12.11`                                                | Exact uv version for `setup-uv` in the lint and test jobs. Don't restate it in callers — see [uv version](#uv-version) below.                 |
 | `docker-build`            | `boolean` | `false`                                                  | Set `true` to validate `docker compose build`. The job stubs `inference-net`, `data-net`, and a placeholder `.env` first.                     |
 | `docker-compose-files`    | `string`  | `-f docker/compose.yaml -f docker/compose.override.yaml` | Compose file selection for `docker compose build`.                                                                                           |
 | `docker-compose-profiles` | `string`  | _(empty)_                                                | E.g. `--profile cpu`. Required where compose gates services behind a profile.                                                                 |
@@ -65,6 +66,43 @@ Inputs — the complete `workflow_call` schema, in declaration order. Only
 A consumer with a `frontend/` must also pin `@infra/ui` correctly, or both the
 `frontend` and `docker` jobs fail — see
 [pinning.md](pinning.md#infra-ui-tarball-pins).
+
+### uv version
+
+`uv-version` declares one exact uv for the whole federation. Before it, no
+call site passed a `version:` and no consumer declared `[tool.uv]
+required-version`, so every lint and test job resolved uv as `latest` at run
+time — the toolchain could change under a repo between two runs of the same
+commit, and nothing recorded which uv a given green run had used.
+
+It must stay exact; a range or `latest` gives that determinism back up.
+
+**It does not make `setup-uv` network-independent** — don't reach for it as
+flake protection. An exact version skips the manifest lookup that *resolves*
+the version, but the download path still reads the same `astral-sh/versions`
+manifest to find the artifact URL, and the response is cached in-process, so
+`latest` and an exact pin both cost exactly one fetch of
+`raw.githubusercontent.com/astral-sh/versions/…/uv.ndjson`. Transient failures
+there are setup-uv's to retry — v10.0.1 added three attempts with backoff
+(v10.0.0 had none, and failed a consumer PR on a single `fetch failed`).
+
+**Consumers should not pass it.** Inheriting the default is the point; the
+input exists so a repo can route around a bad uv release without waiting on a
+hub tag.
+
+Bumping is deliberate and hub-side:
+
+1. edit the `uv-version` default in `.github/workflows/python-app-ci.yml`;
+2. mirror the literal into both `setup-uv` steps in
+   `.github/workflows/self-ci.yml` — its `lint-validator` job asserts the two
+   agree and fails the hub's own CI on drift;
+3. cut a tag ([versioning.md](versioning.md)); consumers pick it up as a
+   Dependabot pin bump.
+
+Dependabot never bumps this value itself — same posture as the centrally
+pinned `ruff` and `pyrefly` ([strict-python.md](strict-python.md)). It is
+independent of the `ghcr.io/astral-sh/uv:*` base images in the app
+Dockerfiles, which are digest-pinned and Dependabot-managed per repo.
 
 ## infra-validation
 
