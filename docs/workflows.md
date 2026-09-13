@@ -101,8 +101,12 @@ Bumping is deliberate and hub-side:
 
 Dependabot never bumps this value itself — same posture as the centrally
 pinned `ruff` and `pyrefly` ([strict-python.md](strict-python.md)). It is
-independent of the `ghcr.io/astral-sh/uv:*` base images in the app
-Dockerfiles, which are digest-pinned and Dependabot-managed per repo.
+independent of the uv the app Dockerfiles copy into their build stage
+(`FROM ghcr.io/astral-sh/uv:<version>@sha256:… AS uv`), which each repo pins
+on a `FROM` line and Dependabot bumps. The two need not be equal: lockfile
+compatibility is per uv minor release, and each repo's docker job runs
+`uv sync --locked` with the Dockerfile's uv on every PR, so a divergence that
+matters fails there.
 
 ## infra-validation
 
