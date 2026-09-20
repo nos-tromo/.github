@@ -253,6 +253,77 @@ jobs:
       - name: No frontend should skip (pass)
         run: python3 scripts/validate_infra_ui_pin.py --consumer-root tests/fixtures/uipin-absent
 
+  profile-smoke:
+    # The profile page describes twelve sibling repositories, so most of its
+    # claims can only be checked against checkouts this job does not have.
+    # What IS checkable here is everything internal to the hub: the fixtures,
+    # the page's own structure, and the claims about this repository. The
+    # cross-repo half runs on a schedule in profile-audit.yml, because member
+    # drift is external and must never redden an unrelated PR.
+    #
+    # Exit codes are asserted exactly. The `if ...; then fail` idiom used by
+    # the other smoke jobs accepts any non-zero status, which would let a
+    # traceback masquerade as a detected drift.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.11'
+      - name: Aligned fixture should pass
+        run: |
+          rc=0
+          python3 scripts/validate_profile_claims.py \
+            --profile tests/fixtures/profile-aligned/profile/README.md \
+            --claims tests/fixtures/profile-aligned/profile/claims.toml \
+            --members-root tests/fixtures/profile-aligned/members || rc=$?
+          [ "$rc" -eq 0 ] || { echo "Bug: aligned fixture exited $rc, want 0" >&2; exit 1; }
+      - name: Drifted fixture should report drift
+        # The anchored env line is gone from the member's compose file.
+        run: |
+          rc=0
+          python3 scripts/validate_profile_claims.py \
+            --profile tests/fixtures/profile-drifted/profile/README.md \
+            --claims tests/fixtures/profile-drifted/profile/claims.toml \
+            --members-root tests/fixtures/profile-drifted/members || rc=$?
+          [ "$rc" -eq 1 ] || { echo "Bug: drifted fixture exited $rc, want 1" >&2; exit 1; }
+      - name: A row with no claim should report drift
+        run: |
+          rc=0
+          python3 scripts/validate_profile_claims.py \
+            --profile tests/fixtures/profile-uncovered/profile/README.md \
+            --claims tests/fixtures/profile-uncovered/profile/claims.toml \
+            --members-root tests/fixtures/profile-uncovered/members || rc=$?
+          [ "$rc" -eq 1 ] || { echo "Bug: uncovered fixture exited $rc, want 1" >&2; exit 1; }
+      - name: A missing checkout should be unsound, not drift
+        # Exit 2 is what stops the scheduled job opening a false drift issue
+        # when a clone fails.
+        run: |
+          rc=0
+          python3 scripts/validate_profile_claims.py \
+            --profile tests/fixtures/profile-member-absent/profile/README.md \
+            --claims tests/fixtures/profile-member-absent/profile/claims.toml \
+            --members-root tests/fixtures/profile-member-absent/members || rc=$?
+          [ "$rc" -eq 2 ] || { echo "Bug: absent-member fixture exited $rc, want 2" >&2; exit 1; }
+      - name: This repo's own profile claims must hold
+        # No member clones: --only-present skips the cross-repo claims and
+        # leaves the page structure, the quote coverage, and every claim about
+        # this repository itself.
+        run: |
+          rc=0
+          python3 scripts/validate_profile_claims.py \
+            --members-root . --member .github=. --only-present || rc=$?
+          [ "$rc" -eq 0 ] || { echo "Bug: hub's own profile claims exited $rc, want 0" >&2; exit 1; }
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          # Keep in sync with the uv-version default in python-app-ci.yml.
+          version: 0.12.11
+      - name: Unit tests
+        # Parsing and assertion semantics (case-sensitive paths, comment
+        # skipping, hit ceilings) are unit-tested; the fixtures above only
+        # pin the exit-code contract.
+        run: uv run --with pytest python -m pytest tests/test_profile_claims.py -q
+
   release-tag-unit:
     # Unit tests for actions/release-tag/extract_version.py — the version
     # extractor and anti-downgrade comparator the release-tag action depends on.
