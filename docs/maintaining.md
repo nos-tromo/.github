@@ -1,7 +1,7 @@
 # Maintaining this repo
 
 A self-CI workflow ([`.github/workflows/self-ci.yml`](../.github/workflows/self-ci.yml))
-runs on every PR and push to `main`, in eight jobs that do three things:
+runs on every PR and push to `main`, in nine jobs that do four things:
 
 1. **Lints `scripts/`** (`lint-validator`) with `ruff check` and
    `ruff format --check` using the canonical strict config and the same ruff
@@ -21,8 +21,23 @@ runs on every PR and push to `main`, in eight jobs that do three things:
    | `eslint-config-smoke` | `validate_eslint_config.py` | `eslint-absent` skips |
    | `pins-smoke` | `validate_action_pins.py` | `pins-absent` skips; **and this repo itself**, so the hub is held to the policy it ships |
    | `uipin-smoke` | `validate_infra_ui_pin.py` | `uipin-absent` skips |
+   | `profile-smoke` | `validate_profile_claims.py` | `profile-uncovered` (a row with no claim) must fail; `profile-member-absent` must exit **2**, not 1; **and this repo's own page**, via `--only-present` |
 
-3. **Unit-tests the release-tag action** (`release-tag-unit`): the pytest suite
+3. **Checks the public profile page** (`profile-smoke`): the fixture exit
+   codes above, plus this repo's own `profile/README.md` against
+   [`profile/claims.toml`](../profile/claims.toml) with `--only-present`, and
+   the validator's unit tests. Only the hub-internal half runs here — page
+   structure, quote coverage and the claims about this repository. The
+   cross-repo half needs the member checkouts and runs weekly in
+   [`profile-audit.yml`](../.github/workflows/profile-audit.yml).
+
+   Two notes on that scheduled workflow. Its findings go to one rolling issue
+   labelled `profile-drift`, reopened and rewritten rather than duplicated. And
+   GitHub disables scheduled workflows after 60 days of repository inactivity,
+   which only matters during a long absence; re-enable it by hand rather than
+   adding keepalive commits.
+
+4. **Unit-tests the release-tag action** (`release-tag-unit`): the pytest suite
    for [`actions/release-tag/extract_version.py`](../actions/release-tag/) — the
    version extractor and anti-downgrade comparator. Nothing else exercises them.
 

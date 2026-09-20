@@ -62,6 +62,18 @@ seam one layer up: the app frontends' `@infra/ui` dependency must be a
 lockfile would keep resolving the tag even after the manifest was fixed. Skips repos without a
 frontend or without the dep. Runs in `python-app-ci`'s lint job beside the action-pin check.
 
+`validate_profile_claims.py` is a seventh validator and the only **hub-only** one — no consumer
+runs it, so the "all six validators" wording in the `python-app-ci` docs stays correct. It checks
+`profile/README.md`, the public landing page, against `profile/claims.toml`, which anchors each
+claim on the page to a line of *config or source* in the member repo it describes. Anchoring to
+config is load-bearing: a member's own prose routinely mentions a capability as planned or
+deprecated, so an anchor into docs passes claims that are false in practice (the page claimed
+Authelia TOTP for 49 days while every access rule was single-factor). It is also the only script
+here with a **three-valued exit**: 0 holds, 1 drift, 2 could-not-run — so the scheduled
+`profile-audit.yml` can tell a false claim from a failed clone and never opens a drift issue for
+the latter. Green means "every anchored fact still holds", not "the page is accurate"; it cannot
+judge prose.
+
 ## Invariants you must preserve
 
 These are the non-obvious rules that keep the system coherent:
@@ -119,6 +131,12 @@ python3 scripts/validate_action_pins.py   --consumer-root tests/fixtures/pins-al
 python3 scripts/validate_action_pins.py   --consumer-root .   # the hub is subject to its own pin policy
 python3 scripts/validate_infra_ui_pin.py  --consumer-root tests/fixtures/uipin-aligned
 
+# The profile-claims check is hub-only and takes member checkouts, not a consumer root.
+# The local workspace already has the layout it wants (members as siblings under ../):
+python3 scripts/validate_profile_claims.py --members-root .. --member .github=.
+python3 scripts/validate_profile_claims.py --members-root . --member .github=. --only-present
+python3 scripts/validate_profile_claims.py --list-repos   # member list, read off the page
+
 # Lint scripts/ exactly as self-ci does — pinned ruff version, canonical config:
 VER=$(grep '^ruff:' configs/python-strict/precommit-versions.yaml | awk '{print $2}' | tr -d '"' | sed 's/^v//')
 uvx "ruff@$VER" check  --config configs/python-strict/ruff.toml scripts/
@@ -129,6 +147,9 @@ bash tests/bundle_version_smoke.sh     # bundle-lib-smoke
 bash tests/bundle_checkout_smoke.sh    # bundle-lib-smoke
 bash tests/build_persist_smoke.sh      # make-common-smoke
 
+# Unit tests for the profile-claims validator (run in self-ci's profile-smoke job):
+uv run --with pytest python -m pytest tests/test_profile_claims.py -q
+
 # Unit tests for the release-tag action (pytest; run in self-ci's release-tag-unit job):
 cd actions/release-tag && uv run --with pytest python -m pytest -q
 # single test:
@@ -136,7 +157,7 @@ cd actions/release-tag && uv run --with pytest python -m pytest test_extract_ver
 ```
 
 `self-ci.yml` runs on every PR/push here and is the source of truth for what "green" means:
-in eight jobs it lints `scripts/`, runs each validator against an aligned fixture (must pass), a
+in nine jobs it lints `scripts/`, runs each validator against an aligned fixture (must pass), a
 drifted fixture (must fail) and the opt-in edge cases, and pytests the release-tag action. When
 you add or change a validator, add its smoke job there too. Full job map: `docs/maintaining.md`.
 
@@ -146,8 +167,11 @@ you add or change a validator, add its smoke job there too. Full job map: `docs/
 - `actions/release-tag/` — composite action; `extract_version.py` + its pytest suite.
 - `configs/` — canonical shared files: `python-strict/`, `make-common/`, `bundle/`, `frontend-eslint/`.
 - `scripts/` — the stdlib-only drift validators plus the action-pin policy check.
+- `profile/` — the public account landing page (`README.md`) and `claims.toml`, the
+  anchors tying its claims to member config. Rendered by GitHub on the account profile.
 - `tests/fixtures/` — per-validator `*-aligned` / `*-drifted` / `*-absent` / `*-required-absent` fixtures
   (the strict-config set is unprefixed: `aligned` / `drifted` / `half-migrated`; the `pins-*` set uses
-  invented placeholder SHAs); `tests/*.sh` are bash smoke tests.
+  invented placeholder SHAs; the `profile-*` set uses an invented org and invented member repos);
+  `tests/*.sh` are bash smoke tests and `tests/test_profile_claims.py` is a pytest suite.
 - `docs/` — the consumer-facing reference set (`workflows.md`, `pinning.md`, `strict-python.md`, `vendored-files.md`, `versioning.md`, `maintaining.md`), indexed by `docs/README.md`.
 - `docs/superpowers/specs/` and `docs/superpowers/plans/` — dated design specs and implementation plans (this repo uses the brainstorm → spec → plan workflow; read the relevant spec before changing bundle/release behavior).
