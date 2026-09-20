@@ -1,0 +1,184 @@
+name: profile-audit
+
+# Cross-repo half of the profile-claims check.
+#
+# profile/README.md describes twelve sibling repositories, so most of its
+# claims can only be checked against those repositories' own configuration.
+# This workflow clones them and runs the full audit.
+#
+# It runs on a SCHEDULE rather than as a PR gate, deliberately. The page goes
+# stale when a *member* changes, which has nothing to do with whatever pull
+# request happens to be open here. Gating PRs on it would turn an unrelated
+# dependency bump red because someone renamed a file in another repository —
+# the "every consumer went red at once" failure described in CLAUDE.md. The
+# hub-internal half (page structure, quote coverage, this repo's own claims)
+# does gate PRs, in self-ci.yml's profile-smoke job.
+#
+# Pull requests that touch the page or the validator run the audit too, but
+# with issue reporting switched off: there the result is advisory feedback on
+# the change itself, not a standing statement about the federation.
+#
+# Findings land in ONE rolling issue rather than a new issue per run, so a
+# long-lived drift does not accumulate duplicates.
+#
+# Note: GitHub disables scheduled workflows after 60 days of repository
+# inactivity. That only bites during a long maintainer absence and is
+# re-enabled by hand; do not add keepalive commits to work around it.
+
+on:
+  schedule:
+    # 06:17 UTC on Mondays — an off-peak minute, since runners queue on the hour.
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'profile/**'
+      - 'scripts/validate_profile_claims.py'
+      - '.github/workflows/profile-audit.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  # Never let a manual dispatch race the cron into two issues.
+  group: profile-audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: members/.github
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.11'
+
+      - name: Clone the members named by the page
+        # The page's own tables are the single source of truth for who is a
+        # member; hardcoding the list here would be a second copy to keep in
+        # sync. The hub itself is already checked out above.
+        working-directory: members/.github
+        env:
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          python3 scripts/validate_profile_claims.py --list-repos > /tmp/members.txt
+          echo "Members named by the page:"
+          cat /tmp/members.txt
+          while read -r repo; do
+            [ -n "$repo" ] || continue
+            [ "$repo" = ".github" ] && continue
+            for attempt in 1 2 3; do
+              # </dev/null so a clone cannot swallow the loop's input list.
+              if git clone --depth 1 --quiet \
+                   "https://github.com/$OWNER/$repo.git" "../$repo" </dev/null; then
+                break
+              fi
+              if [ "$attempt" = 3 ]; then
+                echo "::error::could not clone $repo after 3 attempts"
+                exit 1
+              fi
+              sleep $((attempt * 5))
+            done
+          done < /tmp/members.txt
+
+      - name: Record what was audited
+        working-directory: members
+        run: |
+          set -euo pipefail
+          for d in */; do
+            printf '%-24s %s\n' "${d%/}" "$(git -C "$d" rev-parse --short HEAD)"
+          done | tee /tmp/heads.txt
+
+      - name: Run the audit
+        id: audit
+        working-directory: members/.github
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set +e
+          python3 scripts/validate_profile_claims.py \
+            --members-root .. --member .github=. > /tmp/audit.txt 2>&1
+          rc=$?
+          set -e
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          cat /tmp/audit.txt
+          # A pull request reports through its own check status; the rolling
+          # issue is for the scheduled run.
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            exit "$rc"
+          fi
+          exit 0
+
+      - name: Open, update or close the rolling issue
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RC: ${{ steps.audit.outputs.rc }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          marker='<!-- profile-audit:rolling -->'
+          gh label create profile-drift --force \
+            --color D93F0B --description 'profile/README.md no longer matches the member repos'
+
+          number=$(gh issue list --repo "$REPO" --label profile-drift --state all \
+                     --json number,body \
+                     --jq "[.[] | select(.body | contains(\"$marker\"))] | first | .number // empty")
+
+          if [ "$RC" = "0" ]; then
+            if [ -n "$number" ]; then
+              gh issue close "$number" --repo "$REPO" \
+                --comment "Profile claims are aligned again as of [this run]($RUN_URL)."
+              echo "closed #$number"
+            else
+              echo "no drift, no open issue - nothing to do"
+            fi
+            exit 0
+          fi
+
+          if [ "$RC" = "2" ]; then
+            title='profile-audit could not run'
+            summary='The audit could not complete, so this is **not** a statement about the page. Most likely a member repository was renamed, made private, or failed to clone.'
+          else
+            title='profile/README.md has drifted from the member repos'
+            summary='One or more claims in `profile/claims.toml` no longer hold. Either the member changed and the page needs updating, or the anchor needs repointing.'
+          fi
+
+          {
+            echo "$marker"
+            echo
+            echo "$summary"
+            echo
+            echo "Findings from [this run]($RUN_URL):"
+            echo
+            echo '```'
+            cat /tmp/audit.txt
+            echo '```'
+            echo
+            echo '<details><summary>Member revisions audited</summary>'
+            echo
+            echo '```'
+            cat /tmp/heads.txt
+            echo '```'
+            echo
+            echo '</details>'
+          } > /tmp/body.md
+
+          if [ -n "$number" ]; then
+            gh issue edit "$number" --repo "$REPO" --title "$title" --body-file /tmp/body.md
+            gh issue reopen "$number" --repo "$REPO" 2>/dev/null || true
+            echo "updated #$number"
+          else
+            gh issue create --repo "$REPO" --label profile-drift \
+              --title "$title" --body-file /tmp/body.md
+          fi
