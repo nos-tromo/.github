@@ -1,0 +1,4 @@
+# ports: named only in a comment, which must not count as evidence
+services:
+  app:
+    image: demo/app:1.0

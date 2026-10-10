@@ -1,0 +1,246 @@
+# Anchored claims for profile/README.md.
+#
+# Each entry ties one phrase on the public profile page to a line of
+# configuration or source in the member repository it describes, so that a
+# member changing shape turns the claim red instead of quietly making the page
+# wrong. Checked by scripts/validate_profile_claims.py.
+#
+# Two rules keep this file honest:
+#
+#   * `quote` must still appear in that repo's table cell. Rewriting the
+#     sentence therefore fails the check rather than orphaning the anchor.
+#   * Anchors point at config or source, never at a member's prose. A README
+#     mentioning a capability as planned or deprecated is not evidence that the
+#     system behaves that way, and anchoring to one is how a false claim
+#     survives a review.
+#
+# Anchors are regexes, so they must not name line numbers.
+
+# --- Platform ---------------------------------------------------------------
+
+[[claim]]
+id = "vllm-cpu-only-shapes"
+repo = "vllm-service"
+quote = "seven single-service CPU-only shapes"
+says = "one compose file per single-service shape"
+glob_count = { pattern = "docker/compose.*-only.yaml", eq = 7 }
+
+[[claim]]
+id = "vllm-router-fronts-everything"
+repo = "vllm-service"
+quote = "One LiteLLM-fronted, OpenAI-compatible endpoint"
+says = "the router service is what the federation talks to"
+file = "docker/compose.yaml"
+matches = '^\s{2}router:'
+
+[[claim]]
+id = "data-plane-owns-both-stores"
+repo = "data-plane"
+quote = "owns the Neo4j (graph + native vectors) and Qdrant"
+file = "docker/compose.yaml"
+matches = '^\s{2}(neo4j|qdrant-cpu):'
+hits = { min = 2, max = 2 }
+
+[[claim]]
+id = "data-plane-cuda-profile"
+repo = "data-plane"
+quote = "CPU or CUDA"
+file = "docker/compose.yaml"
+matches = '^\s{2}qdrant-cuda:'
+
+[[claim]]
+id = "data-plane-backup-runbook"
+repo = "data-plane"
+quote = "backup and restore runbooks"
+exists = ["backup/README.md"]
+
+[[claim]]
+id = "obs-images-digest-pinned"
+repo = "obs-plane"
+quote = "all pulled digest-pinned images"
+says = "every image: line must carry a sha256 digest"
+file = "docker/compose.yaml"
+absent = '^\s+image:\s*(?!.*@sha256:)'
+
+[[claim]]
+id = "obs-core-services"
+repo = "obs-plane"
+quote = "Prometheus, Grafana, Loki and Alloy"
+file = "docker/compose.yaml"
+matches = '^\s{2}(prometheus|grafana|loki|alloy):'
+hits = { min = 4, max = 4 }
+
+[[claim]]
+id = "edge-only-port-publisher"
+repo = "edge-plane"
+quote = "the one member that publishes ports at all"
+says = "base compose only; the dev overrides deliberately do publish"
+in = [
+    "vllm-service",
+    "data-plane",
+    "obs-plane",
+    "open-webui-service",
+    "chorus",
+    "docint",
+    "Nextext",
+    "translator",
+]
+file = "docker/compose.yaml"
+absent = '^\s+ports:'
+
+[[claim]]
+id = "edge-publishes-ports"
+repo = "edge-plane"
+quote = "Caddy (TLS, path routing)"
+file = "docker/compose.yaml"
+matches = '^\s+ports:'
+
+[[claim]]
+id = "edge-strips-client-headers"
+repo = "edge-plane"
+quote = "Strips client-supplied identity headers"
+says = "all four contract headers are dropped before auth runs"
+file = "caddy/Caddyfile"
+matches = '^\s*request_header -X-Auth-'
+hits = { min = 4, max = 4 }
+
+[[claim]]
+id = "edge-injects-identity-headers"
+repo = "edge-plane"
+quote = "headers the apps consume"
+says = "Authelia's assertion is mapped onto the federation contract headers"
+file = "caddy/Caddyfile"
+matches = 'Remote-(User|Email)>X-Auth-'
+hits = { min = 2, max = 2 }
+
+[[claim]]
+id = "open-webui-pinned-image"
+repo = "open-webui-service"
+quote = "digest-pinned upstream image"
+file = "docker/compose.yaml"
+matches = '^\s+image:.*@sha256:'
+
+# --- Applications -----------------------------------------------------------
+
+[[claim]]
+id = "chorus-nine-tools"
+repo = "chorus"
+quote = "nine schema'd graph tools"
+says = "one module per tool; leading-underscore helpers are not tools"
+glob_count = { pattern = "chorus/tools/[!_]*.py", eq = 9 }
+
+[[claim]]
+id = "chorus-audit-log"
+repo = "chorus"
+quote = "§76 BDSG audit logging"
+exists = ["chorus/audit/logger.py"]
+
+[[claim]]
+id = "chorus-entity-resolution"
+repo = "chorus"
+quote = "alias → entity resolution"
+exists = ["chorus/ingestion/resolution.py"]
+
+[[claim]]
+id = "docint-report-builder"
+repo = "docint"
+quote = "a Report Builder"
+exists = ["docint/core/state/report_manager.py", "docint/core/state/report_render.py"]
+
+[[claim]]
+id = "docint-streamed-csv"
+repo = "docint"
+quote = "server-streamed CSV"
+file = "docint/core/api.py"
+matches = 'export\.csv'
+
+[[claim]]
+id = "docint-over-qdrant"
+repo = "docint"
+quote = "over Qdrant"
+file = "pyproject.toml"
+matches = '^\s*"qdrant-client'
+
+[[claim]]
+id = "nextext-per-model-endpoints"
+repo = "Nextext"
+quote = "each on its own external endpoint"
+file = "docker/compose.yaml"
+matches = '^\s*(WHISPER|NER|DIARIZE|VAD)_API_BASE:'
+hits = { min = 4, max = 4 }
+
+[[claim]]
+id = "translator-model-by-env"
+repo = "translator"
+quote = "model-agnostic by env"
+says = "the model id is read from the environment, never hard-coded"
+file = "docker/compose.yaml"
+matches = '^\s*TEXT_MODEL:\s*\$\{TEXT_MODEL'
+
+[[claim]]
+id = "translator-language-count"
+repo = "translator"
+quote = "~50 languages"
+file = "translator/language_map.json"
+json_len = { min = 45, max = 60 }
+
+# --- Engineering glue -------------------------------------------------------
+
+[[claim]]
+id = "deploy-health-gated-tiers"
+repo = "deploy"
+quote = "ordered, health-gated single-host bring-up"
+says = "each tier waits on a health probe before the next starts"
+file = "Makefile"
+matches = 'wait-healthy\.sh'
+hits = { min = 4, max = 6 }
+
+[[claim]]
+id = "hub-five-reusable-workflows"
+repo = ".github"
+quote = "five reusable GitHub Actions workflows"
+says = "a workflow is reusable exactly when it declares workflow_call"
+glob_count = { pattern = ".github/workflows/*.yml", containing = '^\s*workflow_call:', eq = 5 }
+
+[[claim]]
+id = "hub-validator-count"
+repo = ".github"
+quote = "seven drift validators in all"
+glob_count = { pattern = "scripts/validate_*.py", eq = 7 }
+
+[[claim]]
+id = "hub-vendored-canonical-files"
+repo = ".github"
+quote = "the vendored `make/common.mk` + `bundle-lib.sh` + `eslint.config.js`"
+exists = [
+    "configs/make-common/common.mk",
+    "configs/bundle/bundle-lib.sh",
+    "configs/frontend-eslint/eslint.config.js",
+]
+
+[[claim]]
+id = "infra-ui-primitives"
+repo = "infra-ui"
+quote = "UI primitives (Button, Card, Input, Select, Menu, Badge, Spinner, Banner, …)"
+exists = [
+    "src/primitives/Button.tsx",
+    "src/primitives/Card.tsx",
+    "src/primitives/Input.tsx",
+    "src/primitives/Select.tsx",
+    "src/primitives/Badge.tsx",
+    "src/primitives/Spinner.tsx",
+    "src/primitives/Banner.tsx",
+]
+
+[[claim]]
+id = "infra-ui-shell-and-graph"
+repo = "infra-ui"
+quote = "the `AppShell` chrome and a force-graph view"
+exists = ["src/layout/AppShell.tsx", "src/graph/ForceGraph.tsx"]
+
+[[claim]]
+id = "infra-ui-committed-dist"
+repo = "infra-ui"
+quote = "shipping a committed prebuilt `dist/`"
+says = "consumers install the built package, so dist/ is tracked"
+exists = ["dist/index.js", "dist/index.d.ts"]

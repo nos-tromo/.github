@@ -1,0 +1,5 @@
+services:
+  app:
+    image: demo/app:1.0
+    environment:
+      TEXT_MODEL: ${TEXT_MODEL:-demo/model-a}

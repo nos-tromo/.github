@@ -1,0 +1,45 @@
+# Fixture claims for the profile-claims validator. Every repo, path and value
+# here is invented; nothing mirrors a real federation member.
+
+[[claim]]
+id = "alpha-model-by-env"
+repo = "alpha-svc"
+quote = "Reads the alpha config"
+says = "the model is selected by environment variable, not hard-coded"
+file = "docker/compose.yaml"
+matches = '^\s*TEXT_MODEL:\s*\$\{TEXT_MODEL'
+
+[[claim]]
+id = "no-published-ports"
+repo = "alpha-svc"
+quote = "publishes no ports"
+says = "a commented-out ports: line must not satisfy this"
+in = ["alpha-svc", "Beta"]
+file = "docker/compose.yaml"
+absent = '^\s+ports:'
+
+[[claim]]
+id = "beta-widget-modules"
+repo = "Beta"
+quote = "two widget modules"
+glob_count = { pattern = "src/*.tsx", eq = 2 }
+
+[[claim]]
+id = "beta-language-map"
+repo = "Beta"
+quote = "about fifty entries"
+file = "src/language_map.json"
+json_len = { min = 4, max = 60 }
+
+[[claim]]
+id = "glue-callable-workflows"
+repo = ".config"
+quote = "two callable workflows"
+says = "a comment mentioning workflow_call must not be counted"
+glob_count = { pattern = "wf/*.yml", containing = '^\s*workflow_call:', eq = 2 }
+
+[[claim]]
+id = "glue-files-present"
+repo = ".config"
+quote = "Shared build glue"
+exists = ["wf/build.yml", "wf/release.yml"]

@@ -1,0 +1,3 @@
+# workflow_call: mentioned only in a comment
+on:
+  push:

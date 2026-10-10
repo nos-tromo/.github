@@ -1,0 +1,5 @@
+services:
+  app:
+    image: demo/app:1.0
+    environment:
+      MODEL_NAME: demo/model-a
