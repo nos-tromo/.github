@@ -47,7 +47,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           # Keep in sync with the uv-version default in python-app-ci.yml; the
           # "Assert uv pin matches python-app-ci" step below fails on drift.
@@ -314,7 +314,7 @@ jobs:
           python3 scripts/validate_profile_claims.py \
             --members-root . --member .github=. --only-present || rc=$?
           [ "$rc" -eq 0 ] || { echo "Bug: hub's own profile claims exited $rc, want 0" >&2; exit 1; }
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           # Keep in sync with the uv-version default in python-app-ci.yml.
           version: 0.12.11
@@ -333,7 +333,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           # Keep in sync with the uv-version default in python-app-ci.yml; the
           # "Assert uv pin matches python-app-ci" step below fails on drift.
