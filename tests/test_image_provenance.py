@@ -515,6 +515,19 @@ def test_check_returns_2_on_a_transient_service_error(tmp_path, policy):
     assert report.exit_code == 2
 
 
+def test_check_returns_2_when_the_verifier_times_out(tmp_path, policy):
+    consumer = make_consumer(tmp_path / "repo", {"Dockerfile": f"FROM ghcr.io/example-org/tool:1.0@{D1}\n"})
+
+    def runner(cmd, **kwargs):
+        raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
+
+    report = vip.check(consumer, policy, runner=runner)
+    assert report.exit_code == 2
+    [error] = report.errors
+    assert f"ghcr.io/example-org/tool@{D1}" in error
+    assert "timed out" in error
+
+
 def test_a_policy_failure_outranks_a_could_not_run_error(tmp_path, policy):
     consumer = make_consumer(
         tmp_path / "repo",
@@ -784,6 +797,36 @@ def test_summary_lists_verified_images_failures_and_unsigned_images(tmp_path, po
     assert "| `docker.io/example/db` |" in summary
     assert "FAILED" in summary
     assert "`docker.io/library/python`" in summary
+
+
+def cosign_key_output(digest: str, integrated_time: int | None) -> str:
+    """Return what ``cosign verify --key`` prints: a key signature has no certificate subject.
+
+    Without a transparency-log entry (``--insecure-ignore-tlog``) there is no
+    bundle, so ``optional`` is null.
+    """
+    optional = None
+    if integrated_time is not None:
+        payload = {"body": "placeholder", "integratedTime": integrated_time, "logIndex": 1, "logID": "placeholder"}
+        optional = {"Bundle": {"SignedEntryTimestamp": "placeholder", "Payload": payload}}
+    critical = {
+        "identity": {"docker-reference": "docker.io/example/db"},
+        "image": {"docker-manifest-digest": digest},
+        "type": "cosign container image signature",
+    }
+    return json.dumps([{"critical": critical, "optional": optional}])
+
+
+@pytest.mark.parametrize(("integrated_time", "signed"), [(1767323045, "2026-01-02"), (None, "")])
+def test_summary_row_for_a_cosign_key_signer_names_the_key(tmp_path, policy, integrated_time, signed):
+    consumer = make_consumer(tmp_path / "repo", {"compose.yaml": f"services:\n  db:\n    image: example/db:5@{D2}\n"})
+    output = cosign_key_output(D2, integrated_time)
+
+    def runner(cmd, **kwargs):
+        return subprocess.CompletedProcess(cmd, 0, stdout=output, stderr="")
+
+    summary = vip.render_summary(vip.check(consumer, policy, runner=runner))
+    assert f"| `docker.io/example/db` | `sha256:bbbbbbbbbbbb` | verified | key example.pub | {signed} |" in summary
 
 
 # --- main ------------------------------------------------------------------
