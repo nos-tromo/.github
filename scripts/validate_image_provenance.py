@@ -413,8 +413,8 @@ def _dockerfile_refs(text: str) -> list[FileRef]:
         text: Dockerfile contents.
 
     Returns:
-        One entry per ``FROM`` image and ``COPY``/``ADD --from=`` image, in
-        file order.
+        One entry per ``FROM`` image and ``COPY --from=`` image, in file
+        order.
     """
     env: dict[str, tuple[str, frozenset[int]]] = {}
     stages: set[str] = set()
@@ -446,7 +446,7 @@ def _dockerfile_refs(text: str) -> list[FileRef]:
             image, cover = expand(args[0], span)
             if image.lower() not in stages and image.lower() != "scratch":
                 refs.append(FileRef(start, image, cover))
-        elif keyword in {"COPY", "ADD"}:
+        elif keyword == "COPY":
             for token in tokens[1:]:
                 if token.startswith("--from="):
                     source, cover = expand(token.removeprefix("--from="), span)
@@ -458,9 +458,10 @@ def _dockerfile_refs(text: str) -> list[FileRef]:
 def dockerfile_refs(text: str) -> list[tuple[int, str]]:
     """Find the image references in a Dockerfile.
 
-    Collects ``FROM`` images and ``COPY``/``ADD --from=`` images, expanding
-    ``ARG`` defaults, and skips build stages (by name or index) and
-    ``scratch``.
+    Collects ``FROM`` images and ``COPY --from=`` images, expanding ``ARG``
+    defaults, and skips build stages (by name or index) and ``scratch``.
+    ``ADD`` has no ``--from`` flag, so an image named there is not a
+    reference; the fail-closed scan reports a listed one.
 
     Args:
         text: Dockerfile contents.

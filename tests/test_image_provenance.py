@@ -738,6 +738,14 @@ def test_check_accepts_a_listed_image_split_over_a_continuation(tmp_path, policy
     assert len(report.verified) == 1
 
 
+def test_check_fails_closed_on_a_listed_image_after_add_from(tmp_path, policy):
+    # ADD has no --from flag (BuildKit: "unknown flag: --from"), so this is no image reference.
+    dockerfile = f"FROM example/base:1\nADD --from=ghcr.io/example-org/tool:1.0@{D1} /tool /tool\n"
+    report = vip.check(make_consumer(tmp_path / "repo", {"Dockerfile": dockerfile}), policy, FakeRunner(accept={D1}))
+    assert report.exit_code == 1
+    assert "not as a recognized image reference" in report.failures[0].reason
+
+
 def test_check_ignores_comments_that_mention_a_listed_image(tmp_path, policy):
     files = {
         "Dockerfile": f"# built from ghcr.io/example-org/tool\nFROM ghcr.io/example-org/tool:1.0@{D1}\n",
