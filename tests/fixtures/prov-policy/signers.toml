@@ -1,0 +1,22 @@
+# Invented signer policy for the provenance smoke test. The images do not
+# exist; stub gh/cosign binaries stand in for the real verifiers.
+
+[[image]]
+name = "ghcr.io/example-org/tool"
+method = "github-attestation"
+repo = "example-org/tool"
+signer-repo = "example-org/tool"
+source-ref = "refs/heads/main"
+github-hosted-only = true
+
+[[image]]
+name = "docker.io/example/db"
+method = "cosign-key"
+key = "keys/example.pub"
+ignore-tlog = true
+
+[[image]]
+name = "docker.io/example/cache"
+method = "cosign-keyless"
+certificate-identity-regexp = '^https://github\.com/example/cache/'
+certificate-oidc-issuer = "https://token.actions.githubusercontent.com"

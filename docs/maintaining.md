@@ -1,7 +1,7 @@
 # Maintaining this repo
 
 A self-CI workflow ([`.github/workflows/self-ci.yml`](../.github/workflows/self-ci.yml))
-runs on every PR and push to `main`, in nine jobs that do four things:
+runs on every PR and push to `main`, in eleven jobs that do five things:
 
 1. **Lints `scripts/`** (`lint-validator`) with `ruff check` and
    `ruff format --check` using the canonical strict config and the same ruff
@@ -22,6 +22,12 @@ runs on every PR and push to `main`, in nine jobs that do four things:
    | `pins-smoke` | `validate_action_pins.py` | `pins-absent` skips; **and this repo itself**, so the hub is held to the policy it ships |
    | `uipin-smoke` | `validate_infra_ui_pin.py` | `uipin-absent` skips |
    | `profile-smoke` | `validate_profile_claims.py` | `profile-uncovered` (a row with no claim) must fail; `profile-member-absent` must exit **2**, not 1; **and this repo's own page**, via `--only-present` |
+   | `provenance-smoke` | `validate_image_provenance.py` | `tests/provenance_smoke.sh` drives the `prov-*` fixtures with stub `gh`/`cosign` (an outage must exit **2**, not 1); then **live**: `prov-live` pins one real digest per signer-policy entry and must verify, `prov-live-bad` (a genuine but unsigned uv release) must exit 1; plus the unit tests |
+
+   The live provenance steps reach real registries, the GitHub attestation API
+   and the Sigstore transparency log. If one goes red without a change here,
+   either a service is down (exit 2) or an upstream changed how it signs
+   (exit 1). The second case is a policy update, not a flake.
 
 3. **Checks the public profile page** (`profile-smoke`): the fixture exit
    codes above, plus this repo's own `profile/README.md` against
@@ -40,6 +46,14 @@ runs on every PR and push to `main`, in nine jobs that do four things:
 4. **Unit-tests the release-tag action** (`release-tag-unit`): the pytest suite
    for [`actions/release-tag/extract_version.py`](../actions/release-tag/) — the
    version extractor and anti-downgrade comparator. Nothing else exercises them.
+
+5. **Tests the built-image scan** (`scan-smoke`): the unit tests for
+   [`scripts/scan_built_images.py`](../scripts/scan_built_images.py) (synthetic
+   Grype reports, gate thresholds), then the real Grype against
+   `tests/fixtures/scan-live`. That fixture is a deliberately old base built by
+   compose under the same buildx setup as `python-app-ci`'s docker job. The
+   report-only run must pass with a summary row; the default gate must fail on
+   its fixable criticals.
 
 When you add or change a validator, add its smoke job here too.
 

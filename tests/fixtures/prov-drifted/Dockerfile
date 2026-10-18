@@ -1,0 +1,1 @@
+FROM ghcr.io/example-org/tool:1.0@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd

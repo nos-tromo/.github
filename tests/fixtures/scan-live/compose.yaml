@@ -1,0 +1,5 @@
+name: scan-live
+services:
+  probe:
+    build: .
+    image: scan-live-probe:ci

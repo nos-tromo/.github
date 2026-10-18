@@ -2,7 +2,9 @@ name: python-app-ci
 
 # Reusable workflow for nos-tromo Python apps (chorus, docint, Nextext, translator).
 # Runs pre-commit (ruff-check + ruff-format + pyrefly via the repo's .pre-commit-config.yaml),
-# pytest, and optionally docker builds + a React/pnpm frontend.
+# pytest, and optionally docker builds (with a Grype scan of the built images) + a
+# React/pnpm frontend. The lint job also verifies the signed provenance of every
+# digest-pinned image whose publisher signs it.
 
 on:
   workflow_call:
@@ -53,6 +55,16 @@ on:
         required: false
         type: string
         default: ''
+      docker-scan:
+        description: 'Scan the images `docker compose build` produced with Grype (needs docker-build). The summary lands in the job summary; a .grype.yaml in the repo root can ignore an accepted finding, with a reason.'
+        required: false
+        type: boolean
+        default: true
+      docker-scan-fail-on:
+        description: 'Fail the docker job when a finding at or above this severity has a fix available: critical, high, medium, low, negligible, or none (report only).'
+        required: false
+        type: string
+        default: 'critical'
       free-disk-space:
         description: 'Free runner disk before the docker job (needed for fastembed/torch images).'
         required: false
@@ -101,6 +113,10 @@ permissions:
 jobs:
   lint:
     runs-on: ubuntu-latest
+    outputs:
+      # The pinned hub revision, so the docker job runs the same scan script
+      # without repeating the resolve step.
+      hub-ref: ${{ steps.canonical-ref.outputs.ref }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Resolve canonical strict-config ref
@@ -170,6 +186,16 @@ jobs:
         env:
           FRONTEND_DIR: ${{ inputs.frontend-dir }}
         run: python3 .nos-tromo-github-ref/scripts/validate_infra_ui_pin.py --frontend-dir "$FRONTEND_DIR"
+      - name: Install cosign
+        # For the cosign-signed entries of the image-provenance policy.
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Verify signed image provenance
+        # Every digest-pinned image whose publisher signs it (the hub's
+        # configs/image-provenance/signers.toml) must verify; unsigned images
+        # are listed in the job summary. gh needs the token to read attestations.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .nos-tromo-github-ref/scripts/validate_image_provenance.py
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           version: ${{ inputs.uv-version }}
@@ -255,7 +281,7 @@ jobs:
   docker:
     if: ${{ inputs.docker-build }}
     runs-on: ubuntu-latest
-    needs: test
+    needs: [lint, test]
     steps:
       - name: Free disk space
         if: ${{ inputs.free-disk-space }}
@@ -290,3 +316,31 @@ jobs:
           FILES: ${{ inputs.docker-compose-files }}
           PROFILES: ${{ inputs.docker-compose-profiles }}
         run: docker compose --env-file .env $FILES $PROFILES build
+      - name: Checkout canonical scan script
+        if: ${{ inputs.docker-scan }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: nos-tromo/.github
+          ref: ${{ needs.lint.outputs.hub-ref }}
+          path: .nos-tromo-github-ref
+      - name: Install Grype
+        if: ${{ inputs.docker-scan }}
+        id: grype
+        uses: anchore/scan-action/download-grype@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+        with:
+          cache-db: true
+      - name: Scan built images
+        # Fails only on findings that already have a fixed package version, at
+        # or above docker-scan-fail-on; everything else is reported. Grype runs
+        # in the repo root, so a repo's .grype.yaml ignore rules apply.
+        if: ${{ inputs.docker-scan }}
+        env:
+          GRYPE: ${{ steps.grype.outputs.cmd }}
+          FAIL_ON: ${{ inputs.docker-scan-fail-on }}
+          FILES: ${{ inputs.docker-compose-files }}
+          PROFILES: ${{ inputs.docker-compose-profiles }}
+        run: |
+          # shellcheck disable=SC2086 # FILES/PROFILES are word-split on purpose, as in "Build images"
+          docker compose --env-file .env $FILES $PROFILES config --format json > "$RUNNER_TEMP/compose.json"
+          python3 .nos-tromo-github-ref/scripts/scan_built_images.py \
+            --compose-config "$RUNNER_TEMP/compose.json" --grype "$GRYPE" --fail-on "$FAIL_ON"
