@@ -25,18 +25,23 @@ Four jobs for the Python consumers — the four apps (`chorus`, `docint`,
 `run-tests: false`:
 
 - **`lint`** — always runs. Checks this repo out at the ref the caller pinned,
-  then runs all six validators against the consumer
+  then runs all seven validators against the consumer
   ([strict-python.md](strict-python.md), [vendored-files.md](vendored-files.md),
   [pinning.md](pinning.md)): `validate_strict_config`, `validate_make_common`,
   `validate_bundle_lib`, `validate_eslint_config`, `validate_action_pins`,
-  `validate_infra_ui_pin`. Then `uv sync` and `pre-commit run --all-files`
-  (ruff + pyrefly, from the consumer's own `.pre-commit-config.yaml`).
+  `validate_infra_ui_pin`, and `validate_image_provenance` (installs cosign;
+  needs network access and `github.token`, which it already has — see
+  [pinning.md](pinning.md#signed-image-provenance)). Then `uv sync` and
+  `pre-commit run --all-files` (ruff + pyrefly, from the consumer's own
+  `.pre-commit-config.yaml`).
 - **`test`** — `needs: lint`; pytest across the `python-versions` matrix.
   Gated on `run-tests`.
 - **`frontend`** — `needs: lint`; gated on `frontend-build`. Runs
   `pnpm install --frozen-lockfile`, then `pnpm test` and `pnpm build` (and
   `pnpm lint` when `frontend-lint` is set).
-- **`docker`** — `needs: test`; gated on `docker-build`.
+- **`docker`** — `needs: [lint, test]` (lint hands it the pinned hub ref);
+  gated on `docker-build`. Builds the images, then scans them with Grype unless
+  `docker-scan` is off — see [Image scan](#image-scan).
 
 Inputs — the complete `workflow_call` schema, in declaration order. Only
 `python-versions` is required:
@@ -49,6 +54,8 @@ Inputs — the complete `workflow_call` schema, in declaration order. Only
 | `docker-build`            | `boolean` | `false`                                                  | Set `true` to validate `docker compose build`. The job stubs `inference-net`, `data-net`, and a placeholder `.env` first.                     |
 | `docker-compose-files`    | `string`  | `-f docker/compose.yaml -f docker/compose.override.yaml` | Compose file selection for `docker compose build`.                                                                                           |
 | `docker-compose-profiles` | `string`  | _(empty)_                                                | E.g. `--profile cpu`. Required where compose gates services behind a profile.                                                                 |
+| `docker-scan`             | `boolean` | `true`                                                   | Scan the images `docker compose build` produced with Grype. No effect unless `docker-build` is set. See [Image scan](#image-scan).           |
+| `docker-scan-fail-on`     | `string`  | `critical`                                               | Fail the docker job when a finding at or above this severity has a fix available: `critical`, `high`, `medium`, `low`, `negligible`, or `none` (report only). |
 | `free-disk-space`         | `boolean` | `true`                                                   | Free runner disk before the docker job (large ML images need it). No effect unless `docker-build` is set.                                     |
 | `frontend-build`          | `boolean` | `false`                                                  | Set `true` for repos with a React/pnpm frontend (e.g. `docint`). Note the job runs `pnpm test` as well as `pnpm build`.                       |
 | `frontend-dir`            | `string`  | `frontend`                                               | Path to the frontend project — also where the lint job's `eslint.config.js` and `@infra/ui` pin checks look.                                  |
@@ -60,12 +67,46 @@ Inputs — the complete `workflow_call` schema, in declaration order. Only
 | `frontend-lint`           | `boolean` | `false`                                                  | Also run `pnpm lint` in the `frontend` job. Enable once the repo vendors the canonical `eslint.config.js` and passes lint.                    |
 
 **`run-tests: false` also disables the docker job.** `docker` declares
-`needs: test`, and a skipped dependency skips the dependent — so
+`needs: [lint, test]`, and a skipped dependency skips the dependent — so
 `docker-build: true` is only meaningful with `run-tests` left at `true`.
 
 A consumer with a `frontend/` must also pin `@infra/ui` correctly, or both the
 `frontend` and `docker` jobs fail — see
 [pinning.md](pinning.md#infra-ui-tarball-pins).
+
+### Image scan
+
+After `docker compose build`, the docker job scans every image compose built
+(each service with a `build:` section; pulled-only services are out of scope)
+from the local image store with [Grype](https://github.com/anchore/grype),
+installed by `anchore/scan-action/download-grype`. The script is
+[`scripts/scan_built_images.py`](../scripts/scan_built_images.py), run from the
+same pinned hub revision as the lint job's validators.
+
+- **Gate.** Only *fixable* findings count — a match whose package already has
+  a fixed version — at or above `docker-scan-fail-on` (default `critical`). An
+  unfixed vulnerability is reported but never blocks: there is nothing to bump
+  to yet.
+- **Summary.** Per-image counts by severity (fixable counts in parentheses) and
+  a table of the fixable findings down to `high`, or down to the gate when it
+  is set lower, go to the job summary.
+- **Accepting a finding.** Grype runs in the repo root, so a `.grype.yaml`
+  there applies. Ignored matches are counted in the summary, so an exception
+  stays visible:
+
+  ```yaml
+  # .grype.yaml
+  ignore:
+    - vulnerability: CVE-0000-00000
+      reason: Not reachable - the affected parser is never loaded. Revisit at the next base bump.
+  ```
+
+- **Exit codes.** 1 when the gate fails, 2 when a scan could not run (Grype
+  failed or printed no report). Both fail the job.
+
+The vulnerability database is fetched at run time (and cached between runs),
+so a scan reflects what is known on the day it runs: a red docker job on an
+unchanged branch usually means a new advisory, and the fix is the bump.
 
 ### uv version
 
@@ -119,10 +160,12 @@ Five jobs for the infra repos (`vllm-service`, `data-plane`, `obs-plane`,
 - **`compose-config`** — `docker compose config --quiet`, after stubbing the
   external networks/volumes and a placeholder `.env`. Skipped when
   `compose-files` is empty.
-- **`make-common`** — the vendored-file and action-pin drift checks, run the
-  same ref-locked way as `python-app-ci`'s lint job:
-  `validate_make_common`, `validate_bundle_lib`, `validate_action_pins`. Each
-  skips a repo that has not opted in ([vendored-files.md](vendored-files.md)).
+- **`make-common`** — the vendored-file, action-pin and image-provenance
+  checks, run the same ref-locked way as `python-app-ci`'s lint job:
+  `validate_make_common`, `validate_bundle_lib`, `validate_action_pins`,
+  `validate_image_provenance`. Each skips a repo with nothing to check
+  ([vendored-files.md](vendored-files.md),
+  [pinning.md](pinning.md#signed-image-provenance)).
 
 Inputs — the complete `workflow_call` schema. None is required:
 

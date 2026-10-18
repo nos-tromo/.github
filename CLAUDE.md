@@ -14,8 +14,8 @@ no application code. It provides two things to consumer repos:
 
 `README.md` is the consumer-facing entry point: the inventory plus one copyable caller
 snippet per workflow. `docs/` holds the reference behind it — input schemas
-(`docs/workflows.md`), the two commit-SHA pinning policies (`docs/pinning.md`), the
-strict-Python and vendored-file contracts, versioning. This file is for working
+(`docs/workflows.md`), the two commit-SHA pinning policies and the image-provenance
+check (`docs/pinning.md`), the strict-Python and vendored-file contracts, versioning. This file is for working
 *inside* this repo — read those for consumer-side detail rather than duplicating it here.
 
 ## The two core patterns
@@ -25,11 +25,15 @@ strict-Python and vendored-file contracts, versioning. This file is for working
 doubled `.github/.github/` is correct (the repo is *named* `.github`), and the ref is
 a full commit SHA, never a tag, per this repo's own pin policy (`docs/pinning.md`).
 All five:
-- `python-app-ci.yml` — lint (all six validators + pre-commit) → pytest matrix → optional
-  frontend and docker jobs. `run-tests: false` gives a lint-only run (vllm-service), and
-  skips the docker job with it (`docker` declares `needs: test`).
+- `python-app-ci.yml` — lint (all seven validators + pre-commit) → pytest matrix → optional
+  frontend and docker jobs; the docker job also scans what compose built
+  (`scripts/scan_built_images.py`, Grype, gated on *fixable* findings at
+  `docker-scan-fail-on`, default `critical`). `run-tests: false` gives a lint-only run
+  (vllm-service), and skips the docker job with it (`docker` declares `needs: [lint, test]`;
+  lint hands it the pinned hub ref as a job output).
 - `infra-validation.yml` — yamllint/shellcheck/hadolint/`docker compose config` for infra
-  repos, plus a `make-common` job running the `common.mk` + `bundle-lib.sh` + action-pin checks.
+  repos, plus a `make-common` job running the `common.mk` + `bundle-lib.sh` + action-pin
+  checks and the image-provenance check.
 - `node-lib-ci.yml` — pnpm lint/typecheck/test/build for `@infra/ui`, with optional
   `check-dist`, plus a dedicated `action-pins` job.
 - `claude.yml` — **manual `@claude` only, no automatic per-PR review** (deliberate: exposes no `prompt` input, wires no `pull_request` trigger).
@@ -63,16 +67,29 @@ lockfile would keep resolving the tag even after the manifest was fixed. Skips r
 frontend or without the dep. Runs in `python-app-ci`'s lint job beside the action-pin check.
 
 `validate_profile_claims.py` is a seventh validator and the only **hub-only** one — no consumer
-runs it, so the "all six validators" wording in the `python-app-ci` docs stays correct. It checks
+runs it, so the "all seven validators" wording in the `python-app-ci` docs stays correct. It checks
 `profile/README.md`, the public landing page, against `profile/claims.toml`, which anchors each
 claim on the page to a line of *config or source* in the member repo it describes. Anchoring to
 config is load-bearing: a member's own prose routinely mentions a capability as planned or
 deprecated, so an anchor into docs passes claims that are false in practice (the page claimed
-Authelia TOTP for 49 days while every access rule was single-factor). It is also the only script
-here with a **three-valued exit**: 0 holds, 1 drift, 2 could-not-run — so the scheduled
+Authelia TOTP for 49 days while every access rule was single-factor). It introduced the
+**three-valued exit** here: 0 holds, 1 drift, 2 could-not-run — so the scheduled
 `profile-audit.yml` can tell a false claim from a failed clone and never opens a drift issue for
 the latter. Green means "every anchored fact still holds", not "the page is accurate"; it cannot
-judge prose.
+judge prose. The page's hub row counts `scripts/validate_*.py`, so adding a validator means
+updating that claim and its anchor in the same PR.
+
+`validate_image_provenance.py` is the eighth validator — consumer-run, policy flavor, and the
+first script here that **shells out and uses the network**. It finds image refs in Dockerfiles
+and compose files and verifies every digest-pinned ref to a signed upstream against
+`configs/image-provenance/signers.toml` (`gh attestation verify` or `cosign verify`; keys
+pinned under `configs/image-provenance/keys/`). That directory is hub-owned policy data read
+in place from the pinned revision, **never vendored** — unlike the rest of `configs/`. It
+fails closed around listed images the line parser cannot read, and uses the same 0/1/2 exit as
+profile-claims; in consumer CI both non-zero codes fail, 2 only labels the cause. Adding a
+signer means adding its real digest to `tests/fixtures/prov-live/`, which self-ci verifies
+live. `scan_built_images.py` (the docker job's Grype scan, same 0/1/2 contract) is a CI helper,
+not a validator, so it is not counted.
 
 ## Invariants you must preserve
 
@@ -102,7 +119,9 @@ These are the non-obvious rules that keep the system coherent:
   self-maintaining (no exemption list); don't reintroduce one.
 - **Validators are stdlib-only.** `scripts/*.py` hand-roll their YAML/pre-commit parsing rather
   than importing PyYAML, so they run in any consumer's environment with no install. Keep it that
-  way. They require Python 3.11+ (`tomllib`).
+  way. They require Python 3.11+ (`tomllib`). The two that drive external tools
+  (`validate_image_provenance.py` → `gh`/`cosign`, `scan_built_images.py` → `grype`) do so via
+  `subprocess` and take the runner as a parameter, so their tests inject a fake instead of mocking.
 - **Two-step release.** The hub is hand-tagged (it wires no `release-tag.yml` caller of its
   own; git tags are the only version record — there is no `VERSION` file). Cutting a version is
   (1) tag the merge commit with the next immutable minor (`git tag -a v3.15 -m … &&
@@ -130,6 +149,9 @@ python3 scripts/validate_eslint_config.py --consumer-root tests/fixtures/eslint-
 python3 scripts/validate_action_pins.py   --consumer-root tests/fixtures/pins-aligned
 python3 scripts/validate_action_pins.py   --consumer-root .   # the hub is subject to its own pin policy
 python3 scripts/validate_infra_ui_pin.py  --consumer-root tests/fixtures/uipin-aligned
+# Provenance needs an authenticated gh, and cosign on PATH for the cosign-signed entries:
+python3 scripts/validate_image_provenance.py --consumer-root tests/fixtures/prov-live    # live, must exit 0
+python3 scripts/validate_image_provenance.py --consumer-root ../vllm-service             # real consumer
 
 # The profile-claims check is hub-only and takes member checkouts, not a consumer root.
 # The local workspace already has the layout it wants (members as siblings under ../):
@@ -142,13 +164,17 @@ VER=$(grep '^ruff:' configs/python-strict/precommit-versions.yaml | awk '{print 
 uvx "ruff@$VER" check  --config configs/python-strict/ruff.toml scripts/
 uvx "ruff@$VER" format --config configs/python-strict/ruff.toml --check scripts/
 
-# Bash behavior smoke tests (all three run in self-ci):
+# Bash behavior smoke tests (all four run in self-ci):
 bash tests/bundle_version_smoke.sh     # bundle-lib-smoke
 bash tests/bundle_checkout_smoke.sh    # bundle-lib-smoke
 bash tests/build_persist_smoke.sh      # make-common-smoke
+bash tests/provenance_smoke.sh         # provenance-smoke (stub gh/cosign, no network)
 
 # Unit tests for the profile-claims validator (run in self-ci's profile-smoke job):
 uv run --with pytest python -m pytest tests/test_profile_claims.py -q
+
+# Unit tests for the provenance validator and the image scan (provenance-smoke / scan-smoke):
+uv run --with pytest python -m pytest tests/test_image_provenance.py tests/test_scan_built_images.py -q
 
 # Unit tests for the release-tag action (pytest; run in self-ci's release-tag-unit job):
 cd actions/release-tag && uv run --with pytest python -m pytest -q
@@ -157,21 +183,26 @@ cd actions/release-tag && uv run --with pytest python -m pytest test_extract_ver
 ```
 
 `self-ci.yml` runs on every PR/push here and is the source of truth for what "green" means:
-in nine jobs it lints `scripts/`, runs each validator against an aligned fixture (must pass), a
-drifted fixture (must fail) and the opt-in edge cases, and pytests the release-tag action. When
-you add or change a validator, add its smoke job there too. Full job map: `docs/maintaining.md`.
+in eleven jobs it lints `scripts/`, runs each validator against an aligned fixture (must pass), a
+drifted fixture (must fail) and the opt-in edge cases, pytests the release-tag action, and runs
+the provenance check and the image scan live against real registries. When you add or change a
+validator, add its smoke job there too. Full job map: `docs/maintaining.md`.
 
 ## Layout
 
 - `.github/workflows/` — reusable workflows (above) + `self-ci.yml` (this repo's own CI).
 - `actions/release-tag/` — composite action; `extract_version.py` + its pytest suite.
-- `configs/` — canonical shared files: `python-strict/`, `make-common/`, `bundle/`, `frontend-eslint/`.
-- `scripts/` — the stdlib-only drift validators plus the action-pin policy check.
+- `configs/` — canonical shared files: `python-strict/`, `make-common/`, `bundle/`, `frontend-eslint/`;
+  plus `image-provenance/` (signer policy + pinned keys), read in place and never vendored.
+- `scripts/` — the stdlib-only drift validators, the action-pin / `@infra/ui` / image-provenance
+  policy checks, and `scan_built_images.py`.
 - `profile/` — the public account landing page (`README.md`) and `claims.toml`, the
   anchors tying its claims to member config. Rendered by GitHub on the account profile.
 - `tests/fixtures/` — per-validator `*-aligned` / `*-drifted` / `*-absent` / `*-required-absent` fixtures
   (the strict-config set is unprefixed: `aligned` / `drifted` / `half-migrated`; the `pins-*` set uses
-  invented placeholder SHAs; the `profile-*` set uses an invented org and invented member repos);
-  `tests/*.sh` are bash smoke tests and `tests/test_profile_claims.py` is a pytest suite.
+  invented placeholder SHAs; the `profile-*` set uses an invented org and invented member repos;
+  `prov-*` uses invented images except `prov-live`/`prov-live-bad`, which pin real public upstream
+  digests on purpose, and `scan-live` builds a deliberately old public base);
+  `tests/*.sh` are bash smoke tests and `tests/test_*.py` are pytest suites.
 - `docs/` — the consumer-facing reference set (`workflows.md`, `pinning.md`, `strict-python.md`, `vendored-files.md`, `versioning.md`, `maintaining.md`), indexed by `docs/README.md`.
 - `docs/superpowers/specs/` and `docs/superpowers/plans/` — dated design specs and implementation plans (this repo uses the brainstorm → spec → plan workflow; read the relevant spec before changing bundle/release behavior).
