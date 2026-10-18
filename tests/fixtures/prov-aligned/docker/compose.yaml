@@ -1,0 +1,10 @@
+services:
+  db:
+    image: &db-image docker.io/example/db:5.0@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  db-init:
+    image: *db-image
+  cache:
+    image: "example/cache:${CACHE_TAG:-7.1}@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  app:
+    build: .
+    image: example-app:${APP_VERSION:-latest}

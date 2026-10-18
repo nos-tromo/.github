@@ -1,0 +1,53 @@
+# Upstream images whose publisher signs what it ships.
+#
+# Read in place by scripts/validate_image_provenance.py (never vendored into
+# consumers). Every digest-pinned ref to an image listed here must verify
+# against the entry, or the consumer's CI fails. Images not listed are
+# reported as unsigned: there is nothing to verify for them.
+#
+# Signatures sit on the multi-arch index digest, which is the digest the
+# federation pins, so the pinned digest is verified as-is.
+#
+# Adding an entry: confirm the command by hand against the pinned digest
+# first, then add the real digest to tests/fixtures/prov-live so self-ci keeps
+# proving the entry against the live registry and transparency log.
+#
+# methods:
+#   github-attestation  gh attestation verify (GitHub artifact attestations)
+#   cosign-key          cosign verify --key <pinned public key>
+#   cosign-keyless      cosign verify --certificate-identity-regexp/--certificate-oidc-issuer
+
+[[image]]
+name = "ghcr.io/astral-sh/uv"
+method = "github-attestation"
+repo = "astral-sh/uv"
+# Signer repo rather than workflow: older builds were signed by
+# build-docker.yml, current ones by publish-docker-image.yml.
+signer-repo = "astral-sh/uv"
+source-ref = "refs/heads/main"
+github-hosted-only = true
+
+[[image]]
+name = "ghcr.io/berriai/litellm-non_root"
+method = "cosign-key"
+# BerriAI/litellm cosign.pub (identical at commit 0112e530 and on main).
+# DER SHA-256 c08f854f070d28a9fc5f64ffc7033507f420084b564c906c0e8a9ea45af90b6b
+key = "keys/litellm.pub"
+
+[[image]]
+name = "docker.io/qdrant/qdrant"
+method = "cosign-keyless"
+# Release builds are signed from qdrant/qdrant's tag-triggered docker-image.yml.
+# They run on self-hosted runners, which cosign cannot exclude, so this entry
+# pins the workflow identity only.
+certificate-identity-regexp = '^https://github\.com/qdrant/qdrant/\.github/workflows/docker-image\.yml@refs/tags/v'
+certificate-oidc-issuer = "https://token.actions.githubusercontent.com"
+
+[[image]]
+name = "nvcr.io/nvidia/k8s/dcgm-exporter"
+method = "cosign-key"
+# NVIDIA NGC container-signing key (api.ngc.nvidia.com/v2/catalog/containers/public-key).
+# DER SHA-256 bc37f80d78c8e82fa6d313a1af457943f32ea9f15a2dd634e20992339a2fbe23
+key = "keys/nvidia-ngc.pub"
+# NGC signatures are not recorded in a transparency log.
+ignore-tlog = true
