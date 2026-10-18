@@ -50,6 +50,21 @@ def test_registry_with_port_is_not_mistaken_for_a_tag():
     assert (ref.registry, ref.repository, ref.tag) == ("localhost:5000", "team/app", "2")
 
 
+@pytest.mark.parametrize(
+    ("value", "name"),
+    [
+        ("GHCR.IO/example-org/tool:1.0", "ghcr.io/example-org/tool"),
+        ("ghcr.io:443/example-org/tool:1.0", "ghcr.io/example-org/tool"),
+        ("Docker.IO:443/example/db:5", "docker.io/example/db"),
+        ("INDEX.DOCKER.IO/example/db:5", "docker.io/example/db"),
+        ("registry-1.docker.io:443/example/db:5", "docker.io/example/db"),
+        ("ghcr.io:5000/example-org/tool:1.0", "ghcr.io:5000/example-org/tool"),
+    ],
+)
+def test_registry_host_is_matched_in_any_case_and_without_its_default_port(value, name):
+    assert vip.parse_image_ref(value).name == name
+
+
 def test_digest_without_tag():
     ref = vip.parse_image_ref(f"busybox@{D1}")
     assert (ref.name, ref.tag, ref.digest) == ("docker.io/library/busybox", None, D1)
@@ -258,6 +273,13 @@ def test_load_policy_rejects_duplicate_names(tmp_path):
         vip.load_policy(write_policy(tmp_path, entry + entry))
 
 
+def test_load_policy_rejects_a_file_that_is_not_utf8(tmp_path):
+    path = write_policy(tmp_path)
+    path.write_bytes(b'[[image]]\nname = "docker.io/example/x"  # caf\xe9\nmethod = "cosign-key"\n')
+    with pytest.raises(vip.PolicyError, match="cannot read"):
+        vip.load_policy(path)
+
+
 # --- verify_command --------------------------------------------------------
 
 
@@ -339,6 +361,20 @@ def test_cosign_keyless_command(tmp_path):
             "[https://github.com/someone/toomanyrequests/.github/workflows/x.yml@refs/heads/main]",
             1,
         ),
+        # gh's own identity checks: "expected <Field> to be <want>, got <have>".
+        ("Error: expected SourceRepositoryRef to be refs/heads/main, got refs/heads/toomanyrequests", 1),
+        (
+            "Error: expected SourceRepositoryURI to be https://github.com/example-org/tool, "
+            "got https://github.com/someone/toomanyrequests",
+            1,
+        ),
+        (
+            'Error: expected SAN value to match regex "^https://github.com/example-org/tool/", '
+            'got "https://github.com/someone/toomanyrequests/.github/workflows/x.yml@refs/heads/main"',
+            1,
+        ),
+        ("Error: expected RunnerEnvironment to be github-hosted, got self-hosted", 1),
+        ("Get https://ghcr.io/v2/example-org/tool/manifests/1.0: unexpected EOF", 2),
     ],
 )
 def test_classify_failure(output, expected):
@@ -401,6 +437,13 @@ def make_consumer(root: Path, files: dict[str, str]) -> Path:
     return root
 
 
+def make_raw_consumer(root: Path, name: str, data: bytes) -> Path:
+    """Write one file byte for byte, so line breaks and encoding stay exactly as given."""
+    root.mkdir(parents=True, exist_ok=True)
+    (root / name).write_bytes(data)
+    return root
+
+
 @pytest.fixture
 def policy(tmp_path):
     return vip.load_policy(write_policy(tmp_path / "policy"))
@@ -441,6 +484,15 @@ def test_check_fails_on_a_digest_the_signer_did_not_sign(tmp_path, policy):
     assert "HTTP 404" in failure.reason
 
 
+@pytest.mark.parametrize("host", ["GHCR.IO", "ghcr.io:443", "Ghcr.Io:443"])
+def test_check_verifies_a_listed_image_whatever_its_host_spelling(tmp_path, policy, host):
+    consumer = make_consumer(tmp_path / "repo", {"Dockerfile": f"FROM {host}/example-org/tool:1.0@{D1}\n"})
+    runner = FakeRunner()
+    report = vip.check(consumer, policy, runner=runner)
+    assert report.exit_code == 1
+    assert [cmd[3] for cmd in runner.calls] == [f"oci://ghcr.io/example-org/tool@{D1}"]
+
+
 def test_check_fails_on_a_listed_image_without_a_digest_and_never_calls_the_tool(tmp_path, policy):
     consumer = make_consumer(tmp_path / "repo", {"Dockerfile": "FROM ghcr.io/example-org/tool:1.0\n"})
     runner = FakeRunner()
@@ -463,6 +515,19 @@ def test_check_returns_2_on_a_transient_service_error(tmp_path, policy):
     assert report.exit_code == 2
 
 
+def test_check_returns_2_when_the_verifier_times_out(tmp_path, policy):
+    consumer = make_consumer(tmp_path / "repo", {"Dockerfile": f"FROM ghcr.io/example-org/tool:1.0@{D1}\n"})
+
+    def runner(cmd, **kwargs):
+        raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
+
+    report = vip.check(consumer, policy, runner=runner)
+    assert report.exit_code == 2
+    [error] = report.errors
+    assert f"ghcr.io/example-org/tool@{D1}" in error
+    assert "timed out" in error
+
+
 def test_a_policy_failure_outranks_a_could_not_run_error(tmp_path, policy):
     consumer = make_consumer(
         tmp_path / "repo",
@@ -473,6 +538,66 @@ def test_a_policy_failure_outranks_a_could_not_run_error(tmp_path, policy):
     )
     report = vip.check(consumer, policy, runner=FakeRunner(failure="Error: HTTP 503: Service Unavailable"))
     assert report.exit_code == 1
+
+
+def test_check_reports_a_file_it_cannot_decode_and_checks_the_rest(tmp_path, policy):
+    consumer = make_consumer(tmp_path / "repo", {"compose.yaml": f"services:\n  db:\n    image: example/db:5@{D2}\n"})
+    (consumer / "Dockerfile").write_bytes(b"# caf\xe9 au lait\nFROM example/app:1\n")
+    report = vip.check(consumer, policy, runner=FakeRunner(accept={D2}))
+    assert report.exit_code == 2
+    assert report.unreadable == {consumer / "Dockerfile": "not valid UTF-8"}
+    assert list(report.verified) == [f"docker.io/example/db@{D2}"]
+
+
+def test_a_policy_failure_outranks_an_unreadable_file(tmp_path, policy):
+    consumer = make_consumer(tmp_path / "repo", {"Dockerfile": "FROM ghcr.io/example-org/tool:1.0\n"})
+    (consumer / "compose.yaml").write_bytes(b"services: {}  # caf\xe9\n")
+    assert vip.check(consumer, policy, runner=FakeRunner()).exit_code == 1
+
+
+def test_check_reads_a_dockerfile_that_starts_with_a_byte_order_mark(tmp_path, policy):
+    dockerfile = b"\xef\xbb\xbf" + f"FROM ghcr.io/example-org/tool:1.0@{D1}\n".encode()
+    consumer = make_raw_consumer(tmp_path / "repo", "Dockerfile", dockerfile)
+    report = vip.check(consumer, policy, runner=FakeRunner(accept={D1}))
+    assert report.exit_code == 0
+    assert list(report.verified) == [f"ghcr.io/example-org/tool@{D1}"]
+
+
+# BuildKit breaks Dockerfile lines at "\n" only and splits words at [\t\v\f\r ],
+# so each of these still reads as FROM <image>.
+@pytest.mark.parametrize("space", ["\f", "\v", "\r"])
+def test_check_finds_an_arg_hidden_image_whatever_whitespace_follows_from(tmp_path, policy, space):
+    dockerfile = f"ARG TOOL=tool:1.0@{D1}\nFROM{space}ghcr.io/example-org/${{TOOL}}\n"
+    consumer = make_raw_consumer(tmp_path / "repo", "Dockerfile", dockerfile.encode())
+    report = vip.check(consumer, policy, runner=FakeRunner())
+    assert report.exit_code == 1
+    assert list(report.results) == [f"ghcr.io/example-org/tool@{D1}"]
+
+
+@pytest.mark.parametrize("space", ["\f", "\v", "\r"])
+def test_check_verifies_a_listed_image_whatever_whitespace_follows_from(tmp_path, policy, space):
+    dockerfile = f"FROM{space}ghcr.io/example-org/tool:1.0@{D1}\n"
+    consumer = make_raw_consumer(tmp_path / "repo", "Dockerfile", dockerfile.encode())
+    report = vip.check(consumer, policy, runner=FakeRunner(accept={D1}))
+    assert report.exit_code == 0
+    assert list(report.verified) == [f"ghcr.io/example-org/tool@{D1}"]
+
+
+@pytest.mark.parametrize(
+    ("name", "text"),
+    [
+        (
+            "Dockerfile",
+            f"FROM example/base:1\r\nCOPY \\\r\n  --from=ghcr.io/example-org/tool:1.0@{D1} \\\r\n  /tool /tool\r\n",
+        ),
+        ("compose.yaml", f"services:\r\n  tool:\r\n    image: ghcr.io/example-org/tool:1.0@{D1}\r\n"),
+    ],
+)
+def test_check_reads_files_with_crlf_line_endings(tmp_path, policy, name, text):
+    consumer = make_raw_consumer(tmp_path / "repo", name, text.encode())
+    report = vip.check(consumer, policy, runner=FakeRunner(accept={D1}))
+    assert report.exit_code == 0
+    assert list(report.verified) == [f"ghcr.io/example-org/tool@{D1}"]
 
 
 def test_check_counts_unresolved_refs_without_failing(tmp_path, policy):
@@ -488,6 +613,11 @@ def test_check_counts_unresolved_refs_without_failing(tmp_path, policy):
         f"FROM ghcr.io/example-org/tool:${{TAG}}@{D1}",
         "FROM ghcr.io/example-org/${NAME}:1.0",
         "FROM docker.io/example/${DB}:5",
+        "FROM GHCR.IO/example-org/tool:${TAG}",
+        "FROM ghcr.io:443/example-org/${NAME}:1.0",
+        "FROM ghcr.io:443${NAME}",
+        "FROM registry-1.docker.io/example/db:${TAG}",
+        "FROM Registry-1.Docker.IO:443/example/${DB}:5",
     ],
 )
 def test_check_fails_closed_when_a_variable_may_hide_a_listed_image(tmp_path, policy, line):
@@ -585,6 +715,22 @@ def test_check_fails_closed_on_a_listed_image_in_flow_style_yaml(tmp_path, polic
     assert report.exit_code == 1
 
 
+@pytest.mark.parametrize(
+    "compose",
+    [
+        f"services:\n  tool:\n    image: >-\n      GHCR.IO/example-org/tool:1.0@{D1}\n",
+        f"services:\n  tool: {{image: 'ghcr.io:443/example-org/tool:1.0@{D1}'}}\n",
+        f"services:\n  db:\n    image: >-\n      registry-1.docker.io/example/db:5@{D2}\n",
+        f"services:\n  db: {{image: 'INDEX.DOCKER.IO:443/example/db:5@{D2}'}}\n",
+    ],
+)
+def test_check_fails_closed_on_an_unparsed_listed_image_in_any_host_spelling(tmp_path, policy, compose):
+    consumer = make_consumer(tmp_path / "repo", {"compose.yaml": compose})
+    report = vip.check(consumer, policy, FakeRunner(accept={D1, D2}))
+    assert report.exit_code == 1
+    assert "not as a recognized image reference" in report.failures[0].reason
+
+
 def test_check_fails_closed_on_a_listed_image_used_outside_from(tmp_path, policy):
     dockerfile = f"FROM example/base:1\nARG TOOL=ghcr.io/example-org/tool:1.0@{D1}\nRUN fetch $TOOL\n"
     report = vip.check(make_consumer(tmp_path / "repo", {"Dockerfile": dockerfile}), policy, FakeRunner(accept={D1}))
@@ -605,6 +751,14 @@ def test_check_accepts_a_listed_image_split_over_a_continuation(tmp_path, policy
     assert len(report.verified) == 1
 
 
+def test_check_fails_closed_on_a_listed_image_after_add_from(tmp_path, policy):
+    # ADD has no --from flag (BuildKit: "unknown flag: --from"), so this is no image reference.
+    dockerfile = f"FROM example/base:1\nADD --from=ghcr.io/example-org/tool:1.0@{D1} /tool /tool\n"
+    report = vip.check(make_consumer(tmp_path / "repo", {"Dockerfile": dockerfile}), policy, FakeRunner(accept={D1}))
+    assert report.exit_code == 1
+    assert "not as a recognized image reference" in report.failures[0].reason
+
+
 def test_check_ignores_comments_that_mention_a_listed_image(tmp_path, policy):
     files = {
         "Dockerfile": f"# built from ghcr.io/example-org/tool\nFROM ghcr.io/example-org/tool:1.0@{D1}\n",
@@ -617,6 +771,15 @@ def test_check_ignores_comments_that_mention_a_listed_image(tmp_path, policy):
 def test_check_does_not_confuse_a_longer_name_with_a_listed_image(tmp_path, policy):
     dockerfile = "FROM ghcr.io/example-org/toolbox:1\nRUN echo ghcr.io/example-org/tool-extras\n"
     report = vip.check(make_consumer(tmp_path / "repo", {"Dockerfile": dockerfile}), policy, FakeRunner())
+    assert report.exit_code == 0
+
+
+def test_only_the_host_of_a_listed_name_matches_in_any_case(tmp_path, policy):
+    compose = (
+        "services:\n  app:\n    image: example/app:1\n    labels:\n"
+        '      description: "Talks to Example/DB through GHCR.IO/Example-Org/Tool"\n'
+    )
+    report = vip.check(make_consumer(tmp_path / "repo", {"compose.yaml": compose}), policy, FakeRunner())
     assert report.exit_code == 0
 
 
@@ -634,6 +797,36 @@ def test_summary_lists_verified_images_failures_and_unsigned_images(tmp_path, po
     assert "| `docker.io/example/db` |" in summary
     assert "FAILED" in summary
     assert "`docker.io/library/python`" in summary
+
+
+def cosign_key_output(digest: str, integrated_time: int | None) -> str:
+    """Return what ``cosign verify --key`` prints: a key signature has no certificate subject.
+
+    Without a transparency-log entry (``--insecure-ignore-tlog``) there is no
+    bundle, so ``optional`` is null.
+    """
+    optional = None
+    if integrated_time is not None:
+        payload = {"body": "placeholder", "integratedTime": integrated_time, "logIndex": 1, "logID": "placeholder"}
+        optional = {"Bundle": {"SignedEntryTimestamp": "placeholder", "Payload": payload}}
+    critical = {
+        "identity": {"docker-reference": "docker.io/example/db"},
+        "image": {"docker-manifest-digest": digest},
+        "type": "cosign container image signature",
+    }
+    return json.dumps([{"critical": critical, "optional": optional}])
+
+
+@pytest.mark.parametrize(("integrated_time", "signed"), [(1767323045, "2026-01-02"), (None, "")])
+def test_summary_row_for_a_cosign_key_signer_names_the_key(tmp_path, policy, integrated_time, signed):
+    consumer = make_consumer(tmp_path / "repo", {"compose.yaml": f"services:\n  db:\n    image: example/db:5@{D2}\n"})
+    output = cosign_key_output(D2, integrated_time)
+
+    def runner(cmd, **kwargs):
+        return subprocess.CompletedProcess(cmd, 0, stdout=output, stderr="")
+
+    summary = vip.render_summary(vip.check(consumer, policy, runner=runner))
+    assert f"| `docker.io/example/db` | `sha256:bbbbbbbbbbbb` | verified | key example.pub | {signed} |" in summary
 
 
 # --- main ------------------------------------------------------------------
@@ -685,3 +878,20 @@ def test_main_returns_2_on_an_unreadable_policy(tmp_path, capsys):
     (tmp_path / "repo" / "Dockerfile").write_text("FROM example/app:1\n")
     argv = ["--consumer-root", str(tmp_path / "repo"), "--signers", str(tmp_path / "absent.toml")]
     assert vip.main(argv, runner=FakeRunner()) == 2
+
+
+def test_main_returns_2_and_names_a_file_it_cannot_decode(tmp_path, capsys, monkeypatch):
+    policy_path = write_policy(tmp_path / "policy")
+    make_raw_consumer(tmp_path / "repo", "Dockerfile", b"# caf\xe9\nFROM example/app:1\n")
+    summary_file = tmp_path / "summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary_file))
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    argv = ["--consumer-root", str(tmp_path / "repo"), "--signers", str(policy_path)]
+    assert vip.main(argv, runner=FakeRunner()) == 2
+    err = capsys.readouterr().err
+    assert "Dockerfile" in err
+    assert "not valid UTF-8" in err
+    assert "::error file=Dockerfile::" in err
+    summary = summary_file.read_text()
+    assert "`Dockerfile`" in summary
+    assert "No pinned image here" not in summary

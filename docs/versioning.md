@@ -14,7 +14,7 @@ Cutting a tag has **two** steps — the second is easy to forget and silently
 strands anything on `@v3` at the old commit:
 
 1. Tag the merge commit with the next minor —
-   `git tag -a v3.19 -m "v3.19: …" && git push origin v3.19` (v3.18 is the
+   `git tag -a v3.20 -m "v3.20: …" && git push origin v3.20` (v3.19 is the
    latest at time of writing; `git tag --sort=-v:refname | head -1` is
    authoritative — this repo has no `VERSION` file, the tags *are* the version)
 2. Move the major alias to the same commit —
