@@ -50,6 +50,21 @@ def test_registry_with_port_is_not_mistaken_for_a_tag():
     assert (ref.registry, ref.repository, ref.tag) == ("localhost:5000", "team/app", "2")
 
 
+@pytest.mark.parametrize(
+    ("value", "name"),
+    [
+        ("GHCR.IO/example-org/tool:1.0", "ghcr.io/example-org/tool"),
+        ("ghcr.io:443/example-org/tool:1.0", "ghcr.io/example-org/tool"),
+        ("Docker.IO:443/example/db:5", "docker.io/example/db"),
+        ("INDEX.DOCKER.IO/example/db:5", "docker.io/example/db"),
+        ("registry-1.docker.io:443/example/db:5", "docker.io/example/db"),
+        ("ghcr.io:5000/example-org/tool:1.0", "ghcr.io:5000/example-org/tool"),
+    ],
+)
+def test_registry_host_is_matched_in_any_case_and_without_its_default_port(value, name):
+    assert vip.parse_image_ref(value).name == name
+
+
 def test_digest_without_tag():
     ref = vip.parse_image_ref(f"busybox@{D1}")
     assert (ref.name, ref.tag, ref.digest) == ("docker.io/library/busybox", None, D1)
@@ -441,6 +456,15 @@ def test_check_fails_on_a_digest_the_signer_did_not_sign(tmp_path, policy):
     assert "HTTP 404" in failure.reason
 
 
+@pytest.mark.parametrize("host", ["GHCR.IO", "ghcr.io:443", "Ghcr.Io:443"])
+def test_check_verifies_a_listed_image_whatever_its_host_spelling(tmp_path, policy, host):
+    consumer = make_consumer(tmp_path / "repo", {"Dockerfile": f"FROM {host}/example-org/tool:1.0@{D1}\n"})
+    runner = FakeRunner()
+    report = vip.check(consumer, policy, runner=runner)
+    assert report.exit_code == 1
+    assert [cmd[3] for cmd in runner.calls] == [f"oci://ghcr.io/example-org/tool@{D1}"]
+
+
 def test_check_fails_on_a_listed_image_without_a_digest_and_never_calls_the_tool(tmp_path, policy):
     consumer = make_consumer(tmp_path / "repo", {"Dockerfile": "FROM ghcr.io/example-org/tool:1.0\n"})
     runner = FakeRunner()
@@ -488,6 +512,11 @@ def test_check_counts_unresolved_refs_without_failing(tmp_path, policy):
         f"FROM ghcr.io/example-org/tool:${{TAG}}@{D1}",
         "FROM ghcr.io/example-org/${NAME}:1.0",
         "FROM docker.io/example/${DB}:5",
+        "FROM GHCR.IO/example-org/tool:${TAG}",
+        "FROM ghcr.io:443/example-org/${NAME}:1.0",
+        "FROM ghcr.io:443${NAME}",
+        "FROM registry-1.docker.io/example/db:${TAG}",
+        "FROM Registry-1.Docker.IO:443/example/${DB}:5",
     ],
 )
 def test_check_fails_closed_when_a_variable_may_hide_a_listed_image(tmp_path, policy, line):
@@ -585,6 +614,22 @@ def test_check_fails_closed_on_a_listed_image_in_flow_style_yaml(tmp_path, polic
     assert report.exit_code == 1
 
 
+@pytest.mark.parametrize(
+    "compose",
+    [
+        f"services:\n  tool:\n    image: >-\n      GHCR.IO/example-org/tool:1.0@{D1}\n",
+        f"services:\n  tool: {{image: 'ghcr.io:443/example-org/tool:1.0@{D1}'}}\n",
+        f"services:\n  db:\n    image: >-\n      registry-1.docker.io/example/db:5@{D2}\n",
+        f"services:\n  db: {{image: 'INDEX.DOCKER.IO:443/example/db:5@{D2}'}}\n",
+    ],
+)
+def test_check_fails_closed_on_an_unparsed_listed_image_in_any_host_spelling(tmp_path, policy, compose):
+    consumer = make_consumer(tmp_path / "repo", {"compose.yaml": compose})
+    report = vip.check(consumer, policy, FakeRunner(accept={D1, D2}))
+    assert report.exit_code == 1
+    assert "not as a recognized image reference" in report.failures[0].reason
+
+
 def test_check_fails_closed_on_a_listed_image_used_outside_from(tmp_path, policy):
     dockerfile = f"FROM example/base:1\nARG TOOL=ghcr.io/example-org/tool:1.0@{D1}\nRUN fetch $TOOL\n"
     report = vip.check(make_consumer(tmp_path / "repo", {"Dockerfile": dockerfile}), policy, FakeRunner(accept={D1}))
@@ -617,6 +662,15 @@ def test_check_ignores_comments_that_mention_a_listed_image(tmp_path, policy):
 def test_check_does_not_confuse_a_longer_name_with_a_listed_image(tmp_path, policy):
     dockerfile = "FROM ghcr.io/example-org/toolbox:1\nRUN echo ghcr.io/example-org/tool-extras\n"
     report = vip.check(make_consumer(tmp_path / "repo", {"Dockerfile": dockerfile}), policy, FakeRunner())
+    assert report.exit_code == 0
+
+
+def test_only_the_host_of_a_listed_name_matches_in_any_case(tmp_path, policy):
+    compose = (
+        "services:\n  app:\n    image: example/app:1\n    labels:\n"
+        '      description: "Talks to Example/DB through GHCR.IO/Example-Org/Tool"\n'
+    )
+    report = vip.check(make_consumer(tmp_path / "repo", {"compose.yaml": compose}), policy, FakeRunner())
     assert report.exit_code == 0
 
 

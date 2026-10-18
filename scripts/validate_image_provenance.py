@@ -87,6 +87,7 @@ DIRECTIVE_RE = re.compile(r"^#\s*([A-Za-z]+)\s*=\s*(\S+)\s*$")
 DOCKERFILE_RE = re.compile(r"^(?:Dockerfile(?:\..+)?|.+\.Dockerfile)$")
 COMPOSE_RE = re.compile(r"^(?:docker-)?compose(?:[.-][\w.-]+)?\.ya?ml$")
 IMAGE_LINE_RE = re.compile(r"^\s*(?:-\s+)?image:\s*(.*)$")
+DOCKER_HUB_ALIASES = ("index.docker.io", "registry-1.docker.io")
 # Tool and dependency directories: never consumer-authored image refs.
 SKIP_DIRS = {
     ".git",
@@ -268,8 +269,19 @@ class Report:
         return 0
 
 
+def _registry_host(host: str) -> str:
+    """Return the policy spelling of a registry host.
+
+    Hosts are case-insensitive and ``:443`` is the default port, so
+    ``GHCR.IO`` and ``ghcr.io:443`` both name ``ghcr.io``. Docker Hub's other
+    hosts name ``docker.io``.
+    """
+    host = host.lower().removesuffix(":443")
+    return "docker.io" if host in DOCKER_HUB_ALIASES else host
+
+
 def parse_image_ref(value: str) -> ImageRef | None:
-    """Parse an image reference, normalizing Docker Hub names.
+    """Parse an image reference, normalizing the registry host and Docker Hub names.
 
     Args:
         value: A reference such as ``python:3.12``,
@@ -277,7 +289,9 @@ def parse_image_ref(value: str) -> ImageRef | None:
 
     Returns:
         The parsed reference, or ``None`` when the value is empty, contains
-        whitespace, or still holds an unresolved ``$`` variable.
+        whitespace, or still holds an unresolved ``$`` variable. The registry
+        is spelled as :func:`_registry_host` returns it, so every spelling of
+        a listed image is looked up under its policy name.
     """
     value = value.strip()
     if not value or "$" in value or any(c.isspace() for c in value):
@@ -290,11 +304,9 @@ def parse_image_ref(value: str) -> ImageRef | None:
 
     first, _, rest = name.partition("/")
     if rest and ("." in first or ":" in first or first == "localhost"):
-        registry, repository = first, rest
+        registry, repository = _registry_host(first), rest
     else:
         registry, repository = "docker.io", name
-    if registry in {"index.docker.io", "registry-1.docker.io"}:
-        registry = "docker.io"
     if registry == "docker.io" and "/" not in repository:
         repository = f"library/{repository}"
     if not repository or tag == "":
@@ -517,16 +529,43 @@ def _name_forms(name: str) -> list[str]:
         name: A policy image name, e.g. ``docker.io/qdrant/qdrant``.
 
     Returns:
-        The name itself, plus the registry-less and ``index.docker.io``
-        spellings for Docker Hub images.
+        The name with and without the default ``:443`` port. For Docker Hub
+        images, also the same under Docker Hub's other hosts, and the
+        registry-less spellings. Hosts are spelled in lower case here; the
+        callers match them in any case.
     """
-    forms = [name]
     registry, _, repository = name.partition("/")
+    hosts = [registry]
+    bare: list[str] = []
     if registry == "docker.io":
-        forms += [repository, f"index.docker.io/{repository}"]
+        hosts += DOCKER_HUB_ALIASES
+        bare.append(repository)
         if repository.startswith("library/"):
-            forms.append(repository.removeprefix("library/"))
-    return forms
+            bare.append(repository.removeprefix("library/"))
+    return [f"{host}{port}/{repository}" for host in hosts for port in ("", ":443")] + bare
+
+
+def _mention_pattern(name: str) -> re.Pattern[str]:
+    """Compile a pattern that finds any spelling of a listed image name in a line.
+
+    The registry host matches in any case. The repository path does not: a
+    valid reference spells it in lower case, and a case-blind match would
+    flag prose such as a label that names ``Example/DB``.
+
+    Args:
+        name: A policy image name.
+
+    Returns:
+        A pattern matching any of :func:`_name_forms` as a whole name.
+    """
+    alternatives: list[str] = []
+    for form in sorted(_name_forms(name), key=len, reverse=True):
+        host, sep, path = form.partition("/")
+        if sep and ("." in host or ":" in host):
+            alternatives.append(f"(?i:{re.escape(host)})/{re.escape(path)}")
+        else:
+            alternatives.append(re.escape(form))
+    return re.compile(r"(?<![\w./-])(?:" + "|".join(alternatives) + r")(?![\w./-])")
 
 
 def _mask_variables(raw: str) -> str:
@@ -607,14 +646,15 @@ def _hidden_listed_name(raw: str, policy: dict[str, Signer]) -> str | None:
         policy: The loaded signer policy.
 
     Returns:
-        A listed image name when the text before the first ``$`` is a prefix
-        of one of its spellings or names it outright (followed by a tag, a
-        digest, or nothing), or, when the registry segment itself holds a
-        variable (``${REGISTRY}/org/repo``, ``${HOST}.io/...``), when some
-        value of the variables would make a listed repository path the
-        ref's repository; ``None`` otherwise.
+        A listed image name when the text before the first ``$`` (its host
+        in any case) is a prefix of one of its spellings or names it
+        outright (followed by a tag, a digest, or nothing), or, when the
+        registry segment itself holds a variable (``${REGISTRY}/org/repo``,
+        ``${HOST}.io/...``), when some value of the variables would make a
+        listed repository path the ref's repository; ``None`` otherwise.
     """
-    prefix = raw.split("$", 1)[0]
+    head, sep, rest = raw.split("$", 1)[0].partition("/")
+    prefix = head.lower() + sep + rest
     masked = _mask_variables(raw)
     variable_registry = "\0" in masked.split("/", 1)[0]
     for name in policy:
@@ -656,14 +696,7 @@ def _unrecognized_mentions(
         parsed = parse_image_ref(ref.raw)
         if parsed is not None and parsed.name in policy:
             covered.setdefault(parsed.name, set()).update(ref.cover)
-    patterns = {
-        name: re.compile(
-            r"(?<![\w./-])(?:"
-            + "|".join(re.escape(f) for f in sorted(_name_forms(name), key=len, reverse=True))
-            + r")(?![\w./-])"
-        )
-        for name in policy
-    }
+    patterns = {name: _mention_pattern(name) for name in policy}
     compose = _is_compose(path)
     failures: list[Failure] = []
     for lineno, raw in enumerate(text.splitlines(), start=1):
