@@ -58,9 +58,10 @@ Exit 0 when every listed image verifies (or there is nothing to check),
 1 on a policy failure (an unsigned or wrongly-signed digest, a listed image
 without a digest or outside a recognized reference, or any failure the
 script cannot attribute to the network), 2 when the check could not run (a
-verifier missing, a network or service error, an unreadable policy). Both
-non-zero codes fail CI; 2 only labels the cause, so a verifier message
-cannot turn a failure into a pass. Stdlib-only; Python 3.11+.
+verifier missing, a network or service error, an unreadable policy,
+Dockerfile or compose file). Both non-zero codes fail CI; 2 only labels the
+cause, so a verifier message cannot turn a failure into a pass.
+Stdlib-only; Python 3.11+.
 """
 
 from __future__ import annotations
@@ -253,6 +254,7 @@ class Report:
     errors: list[str] = field(default_factory=list)
     unsigned: set[str] = field(default_factory=set)
     unresolved: list[Located] = field(default_factory=list)
+    unreadable: dict[Path, str] = field(default_factory=dict)
 
     @property
     def verified(self) -> dict[str, Outcome]:
@@ -261,10 +263,10 @@ class Report:
 
     @property
     def exit_code(self) -> int:
-        """Return 1 on any policy failure, else 2 on any could-not-run error, else 0."""
+        """Return 1 on any policy failure, else 2 when anything could not be checked, else 0."""
         if self.failures:
             return 1
-        if self.errors:
+        if self.errors or self.unreadable:
             return 2
         return 0
 
@@ -342,6 +344,17 @@ def _expand(value: str, env: dict[str, str], used: set[str] | None = None) -> st
     return VAR_RE.sub(replace, value)
 
 
+def _dockerfile_lines(text: str) -> list[str]:
+    """Split a Dockerfile into lines the way BuildKit does.
+
+    BuildKit breaks lines at newlines only. A carriage return, vertical tab
+    or form feed inside a line separates words like a space, so ``FROM``,
+    a form feed and an image name is a ``FROM`` line. ``str.splitlines``
+    would break that line in two and hide the image from the parser.
+    """
+    return text.split("\n")
+
+
 def _logical_lines(text: str) -> Iterator[tuple[int, int, str]]:
     """Yield Dockerfile instructions with line continuations joined.
 
@@ -355,7 +368,7 @@ def _logical_lines(text: str) -> Iterator[tuple[int, int, str]]:
         ``(first line, last line, instruction)`` triples, skipping blank
         lines and comments (including comment lines inside a continuation).
     """
-    lines = text.splitlines()
+    lines = _dockerfile_lines(text)
     escape = "\\"
     for raw in lines:
         directive = DIRECTIVE_RE.match(raw.strip())
@@ -365,13 +378,14 @@ def _logical_lines(text: str) -> Iterator[tuple[int, int, str]]:
             escape = directive.group(2)
 
     parts: list[str] = []
-    start = 0
+    start = end = 0
     for lineno, raw in enumerate(lines, start=1):
         stripped = raw.strip()
         if not stripped or stripped.startswith("#"):
             continue
         if not parts:
             start = lineno
+        end = lineno
         if stripped.endswith(escape):
             parts.append(stripped[: -len(escape)].strip())
             continue
@@ -379,7 +393,7 @@ def _logical_lines(text: str) -> Iterator[tuple[int, int, str]]:
         yield start, lineno, " ".join(parts)
         parts = []
     if parts:
-        yield start, len(lines), " ".join(parts)
+        yield start, end, " ".join(parts)
 
 
 def _unquote(value: str) -> str:
@@ -699,7 +713,7 @@ def _unrecognized_mentions(
     patterns = {name: _mention_pattern(name) for name in policy}
     compose = _is_compose(path)
     failures: list[Failure] = []
-    for lineno, raw in enumerate(text.splitlines(), start=1):
+    for lineno, raw in enumerate(text.splitlines() if compose else _dockerfile_lines(text), start=1):
         line = raw.strip()
         if not line or line.startswith("#") or lineno in flagged:
             continue
@@ -731,8 +745,8 @@ def load_policy(path: Path) -> dict[str, Signer]:
         PolicyError: The file is unreadable or an entry is malformed.
     """
     try:
-        data = tomllib.loads(path.read_text())
-    except (OSError, tomllib.TOMLDecodeError) as exc:
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
         raise PolicyError(f"cannot read signer policy {path}: {exc}") from exc
 
     entries = data.get("image", [])
@@ -918,7 +932,10 @@ def check(
     """Check every image reference in a consumer against the policy.
 
     Each distinct pinned digest of a listed image is verified once, however
-    many files pin it.
+    many files pin it. Files are decoded as UTF-8 with no newline
+    translation, so each parser sees the line breaks the real tool sees, and
+    a leading byte-order mark is dropped as BuildKit drops it. A file that
+    cannot be read is recorded in ``unreadable`` and makes the check exit 2.
 
     Args:
         consumer_root: The consumer repo root.
@@ -932,7 +949,14 @@ def check(
     report = Report(files=target_files(consumer_root) if files is None else files)
     pending: dict[str, tuple[Signer, ImageRef, list[Located]]] = {}
     for path in report.files:
-        text = path.read_text()
+        try:
+            text = path.read_bytes().decode("utf-8-sig")
+        except UnicodeDecodeError:
+            report.unreadable[path] = "not valid UTF-8"
+            continue
+        except OSError as exc:
+            report.unreadable[path] = exc.strerror or type(exc).__name__
+            continue
         refs = _compose_refs(text) if _is_compose(path) else _dockerfile_refs(text)
         flagged: set[int] = set()
         for file_ref in refs:
@@ -991,7 +1015,8 @@ def render_summary(report: Report) -> str:
 
     Returns:
         A markdown section: a table of the listed images that were checked,
-        then the unsigned upstream images and any skipped refs.
+        then the unsigned upstream images, any files that could not be read,
+        and any skipped refs.
     """
     lines = ["### Image provenance", ""]
     rows: list[str] = []
@@ -1011,11 +1036,14 @@ def render_summary(report: Report) -> str:
         rows.append(f"| `{_cell(failure.raw)}` | — | **FAILED**: {_cell(failure.reason)} ({where}) | | |")
     if rows:
         lines += ["| Image | Digest | Result | Signed by | Signed |", "|---|---|---|---|---|", *rows, ""]
-    else:
+    elif not report.unreadable:
         lines += ["No pinned image here is published with a signature to verify.", ""]
     if report.unsigned:
         names = ", ".join(f"`{name}`" for name in sorted(report.unsigned))
         lines += [f"Unsigned upstream images (nothing to verify): {names}", ""]
+    if report.unreadable:
+        files = ", ".join(f"`{path.name}` ({reason})" for path, reason in report.unreadable.items())
+        lines += [f"**Could not read**, so not checked: {files}", ""]
     if report.unresolved:
         lines += [f"{len(report.unresolved)} ref(s) with unresolved variables were skipped.", ""]
     return "\n".join(lines)
@@ -1055,6 +1083,12 @@ def _print_report(report: Report, consumer_root: Path) -> None:
         print(f"error: {error}", file=sys.stderr)
         if on_actions:
             print(f"::error::{error}", file=sys.stderr)
+    for path, reason in report.unreadable.items():
+        rel = _relative(path, consumer_root)
+        message = f"cannot read {rel} ({reason}); its image refs were not checked"
+        print(f"error: {message}", file=sys.stderr)
+        if on_actions:
+            print(f"::error file={rel}::{message}", file=sys.stderr)
 
 
 def main(argv: list[str] | None = None, runner: Runner = subprocess.run) -> int:

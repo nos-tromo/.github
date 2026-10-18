@@ -120,7 +120,8 @@ The rules:
   with a warning.
 - Exit 0 means every listed image verified, 1 is a policy failure, and 2
   means the check could not run (a verifier missing, a network or service
-  error). Both non-zero codes fail CI; 2 only labels the cause.
+  error, a file that is not valid UTF-8). Both non-zero codes fail CI; 2 only
+  labels the cause.
 
 It runs in the `python-app-ci` lint job and the `infra-validation`
 make-common job, which install cosign first. `gh` reads attestations with the

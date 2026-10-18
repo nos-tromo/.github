@@ -273,6 +273,13 @@ def test_load_policy_rejects_duplicate_names(tmp_path):
         vip.load_policy(write_policy(tmp_path, entry + entry))
 
 
+def test_load_policy_rejects_a_file_that_is_not_utf8(tmp_path):
+    path = write_policy(tmp_path)
+    path.write_bytes(b'[[image]]\nname = "docker.io/example/x"  # caf\xe9\nmethod = "cosign-key"\n')
+    with pytest.raises(vip.PolicyError, match="cannot read"):
+        vip.load_policy(path)
+
+
 # --- verify_command --------------------------------------------------------
 
 
@@ -416,6 +423,13 @@ def make_consumer(root: Path, files: dict[str, str]) -> Path:
     return root
 
 
+def make_raw_consumer(root: Path, name: str, data: bytes) -> Path:
+    """Write one file byte for byte, so line breaks and encoding stay exactly as given."""
+    root.mkdir(parents=True, exist_ok=True)
+    (root / name).write_bytes(data)
+    return root
+
+
 @pytest.fixture
 def policy(tmp_path):
     return vip.load_policy(write_policy(tmp_path / "policy"))
@@ -497,6 +511,66 @@ def test_a_policy_failure_outranks_a_could_not_run_error(tmp_path, policy):
     )
     report = vip.check(consumer, policy, runner=FakeRunner(failure="Error: HTTP 503: Service Unavailable"))
     assert report.exit_code == 1
+
+
+def test_check_reports_a_file_it_cannot_decode_and_checks_the_rest(tmp_path, policy):
+    consumer = make_consumer(tmp_path / "repo", {"compose.yaml": f"services:\n  db:\n    image: example/db:5@{D2}\n"})
+    (consumer / "Dockerfile").write_bytes(b"# caf\xe9 au lait\nFROM example/app:1\n")
+    report = vip.check(consumer, policy, runner=FakeRunner(accept={D2}))
+    assert report.exit_code == 2
+    assert report.unreadable == {consumer / "Dockerfile": "not valid UTF-8"}
+    assert list(report.verified) == [f"docker.io/example/db@{D2}"]
+
+
+def test_a_policy_failure_outranks_an_unreadable_file(tmp_path, policy):
+    consumer = make_consumer(tmp_path / "repo", {"Dockerfile": "FROM ghcr.io/example-org/tool:1.0\n"})
+    (consumer / "compose.yaml").write_bytes(b"services: {}  # caf\xe9\n")
+    assert vip.check(consumer, policy, runner=FakeRunner()).exit_code == 1
+
+
+def test_check_reads_a_dockerfile_that_starts_with_a_byte_order_mark(tmp_path, policy):
+    dockerfile = b"\xef\xbb\xbf" + f"FROM ghcr.io/example-org/tool:1.0@{D1}\n".encode()
+    consumer = make_raw_consumer(tmp_path / "repo", "Dockerfile", dockerfile)
+    report = vip.check(consumer, policy, runner=FakeRunner(accept={D1}))
+    assert report.exit_code == 0
+    assert list(report.verified) == [f"ghcr.io/example-org/tool@{D1}"]
+
+
+# BuildKit breaks Dockerfile lines at "\n" only and splits words at [\t\v\f\r ],
+# so each of these still reads as FROM <image>.
+@pytest.mark.parametrize("space", ["\f", "\v", "\r"])
+def test_check_finds_an_arg_hidden_image_whatever_whitespace_follows_from(tmp_path, policy, space):
+    dockerfile = f"ARG TOOL=tool:1.0@{D1}\nFROM{space}ghcr.io/example-org/${{TOOL}}\n"
+    consumer = make_raw_consumer(tmp_path / "repo", "Dockerfile", dockerfile.encode())
+    report = vip.check(consumer, policy, runner=FakeRunner())
+    assert report.exit_code == 1
+    assert list(report.results) == [f"ghcr.io/example-org/tool@{D1}"]
+
+
+@pytest.mark.parametrize("space", ["\f", "\v", "\r"])
+def test_check_verifies_a_listed_image_whatever_whitespace_follows_from(tmp_path, policy, space):
+    dockerfile = f"FROM{space}ghcr.io/example-org/tool:1.0@{D1}\n"
+    consumer = make_raw_consumer(tmp_path / "repo", "Dockerfile", dockerfile.encode())
+    report = vip.check(consumer, policy, runner=FakeRunner(accept={D1}))
+    assert report.exit_code == 0
+    assert list(report.verified) == [f"ghcr.io/example-org/tool@{D1}"]
+
+
+@pytest.mark.parametrize(
+    ("name", "text"),
+    [
+        (
+            "Dockerfile",
+            f"FROM example/base:1\r\nCOPY \\\r\n  --from=ghcr.io/example-org/tool:1.0@{D1} \\\r\n  /tool /tool\r\n",
+        ),
+        ("compose.yaml", f"services:\r\n  tool:\r\n    image: ghcr.io/example-org/tool:1.0@{D1}\r\n"),
+    ],
+)
+def test_check_reads_files_with_crlf_line_endings(tmp_path, policy, name, text):
+    consumer = make_raw_consumer(tmp_path / "repo", name, text.encode())
+    report = vip.check(consumer, policy, runner=FakeRunner(accept={D1}))
+    assert report.exit_code == 0
+    assert list(report.verified) == [f"ghcr.io/example-org/tool@{D1}"]
 
 
 def test_check_counts_unresolved_refs_without_failing(tmp_path, policy):
@@ -739,3 +813,20 @@ def test_main_returns_2_on_an_unreadable_policy(tmp_path, capsys):
     (tmp_path / "repo" / "Dockerfile").write_text("FROM example/app:1\n")
     argv = ["--consumer-root", str(tmp_path / "repo"), "--signers", str(tmp_path / "absent.toml")]
     assert vip.main(argv, runner=FakeRunner()) == 2
+
+
+def test_main_returns_2_and_names_a_file_it_cannot_decode(tmp_path, capsys, monkeypatch):
+    policy_path = write_policy(tmp_path / "policy")
+    make_raw_consumer(tmp_path / "repo", "Dockerfile", b"# caf\xe9\nFROM example/app:1\n")
+    summary_file = tmp_path / "summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary_file))
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    argv = ["--consumer-root", str(tmp_path / "repo"), "--signers", str(policy_path)]
+    assert vip.main(argv, runner=FakeRunner()) == 2
+    err = capsys.readouterr().err
+    assert "Dockerfile" in err
+    assert "not valid UTF-8" in err
+    assert "::error file=Dockerfile::" in err
+    summary = summary_file.read_text()
+    assert "`Dockerfile`" in summary
+    assert "No pinned image here" not in summary
