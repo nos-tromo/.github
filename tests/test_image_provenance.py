@@ -361,6 +361,20 @@ def test_cosign_keyless_command(tmp_path):
             "[https://github.com/someone/toomanyrequests/.github/workflows/x.yml@refs/heads/main]",
             1,
         ),
+        # gh's own identity checks: "expected <Field> to be <want>, got <have>".
+        ("Error: expected SourceRepositoryRef to be refs/heads/main, got refs/heads/toomanyrequests", 1),
+        (
+            "Error: expected SourceRepositoryURI to be https://github.com/example-org/tool, "
+            "got https://github.com/someone/toomanyrequests",
+            1,
+        ),
+        (
+            'Error: expected SAN value to match regex "^https://github.com/example-org/tool/", '
+            'got "https://github.com/someone/toomanyrequests/.github/workflows/x.yml@refs/heads/main"',
+            1,
+        ),
+        ("Error: expected RunnerEnvironment to be github-hosted, got self-hosted", 1),
+        ("Get https://ghcr.io/v2/example-org/tool/manifests/1.0: unexpected EOF", 2),
     ],
 )
 def test_classify_failure(output, expected):

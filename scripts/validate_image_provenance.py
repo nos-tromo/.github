@@ -132,6 +132,9 @@ POLICY_MARKERS = (
     "verifying with issuer",
     "manifest unknown",
 )
+# gh's identity checks, one per certificate field: "expected SourceRepositoryRef
+# to be X, got Y", "expected SAN value to match regex X, got Y", ...
+IDENTITY_MISMATCH_RE = re.compile(r"\bexpected \w+ (?:to be|value) ")
 # Network, service and credential errors: the check could not run.
 TRANSIENT_RE = re.compile(
     r"http 5\d\d|http 401|rate limit exceeded|toomanyrequests|no such host|i/o timeout|tls handshake timeout"
@@ -846,7 +849,7 @@ def classify_failure(output: str) -> int:
         for output nobody anticipated, so an unknown failure fails closed.
     """
     lowered = output.lower()
-    if any(marker in lowered for marker in POLICY_MARKERS):
+    if any(marker in lowered for marker in POLICY_MARKERS) or IDENTITY_MISMATCH_RE.search(lowered):
         return 1
     return 2 if TRANSIENT_RE.search(lowered) else 1
 
