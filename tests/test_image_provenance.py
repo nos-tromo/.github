@@ -112,6 +112,15 @@ def test_dockerfile_copy_from_stage_index_is_skipped():
     ]
 
 
+def test_dockerfile_escape_directive_stops_backslash_continuing_a_line():
+    text = "# escape=`\nFROM example/base:1\nRUN dir C:\\\nFROM example/second:1\n"
+    assert vip.dockerfile_refs(text) == [(2, "example/base:1"), (4, "example/second:1")]
+
+
+def test_dockerfile_escape_directive_continues_lines_with_its_own_character():
+    assert vip.dockerfile_refs("# escape=`\nFROM `\n    example/base:1\n") == [(2, "example/base:1")]
+
+
 # --- compose_refs ----------------------------------------------------------
 
 COMPOSE = f"""\
@@ -140,17 +149,20 @@ def test_compose_refs_strip_anchors_quotes_comments_and_expand_defaults():
 # --- target_files ----------------------------------------------------------
 
 
-def test_target_files_find_dockerfiles_and_compose_files_but_skip_hidden_dirs(tmp_path):
+def test_target_files_find_dockerfiles_and_compose_files_but_skip_tool_dirs(tmp_path):
     for rel in [
         "Dockerfile",
         "build.Dockerfile",
         "docker/Dockerfile.backend",
+        "docker/Dockerfile.backend.dockerignore",
         "docker/compose.yaml",
         "docker/compose.override.yaml",
         "docker-compose.yml",
         "docker/notes.md",
-        ".hidden/Dockerfile",
+        ".devcontainer/Dockerfile",
+        ".git/modules/x/Dockerfile",
         ".nos-tromo-github-ref/tests/fixtures/x/compose.yaml",
+        ".venv/lib/pkg/Dockerfile",
         "frontend/node_modules/pkg/Dockerfile",
     ]:
         path = tmp_path / rel
@@ -158,6 +170,7 @@ def test_target_files_find_dockerfiles_and_compose_files_but_skip_hidden_dirs(tm
         path.write_text("")
     found = [p.relative_to(tmp_path).as_posix() for p in vip.target_files(tmp_path)]
     assert found == [
+        ".devcontainer/Dockerfile",
         "Dockerfile",
         "build.Dockerfile",
         "docker-compose.yml",
@@ -165,6 +178,15 @@ def test_target_files_find_dockerfiles_and_compose_files_but_skip_hidden_dirs(tm
         "docker/compose.override.yaml",
         "docker/compose.yaml",
     ]
+
+
+def test_target_files_skip_nested_checkouts(tmp_path):
+    for rel in ["Dockerfile", "worktrees/feature/.git", "worktrees/feature/Dockerfile", "vendor/lib/.git/HEAD"]:
+        path = tmp_path / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("")
+    (tmp_path / "vendor" / "lib" / "Dockerfile").write_text("")
+    assert [p.relative_to(tmp_path).as_posix() for p in vip.target_files(tmp_path)] == ["Dockerfile"]
 
 
 # --- load_policy -----------------------------------------------------------
@@ -305,6 +327,18 @@ def test_cosign_keyless_command(tmp_path):
         ("Get https://ghcr.io/v2/: context deadline exceeded", 2),
         ("GET https://index.docker.io/v2/: TOOMANYREQUESTS: rate limit", 2),
         ("read tcp 10.0.0.1:443: connection reset by peer", 2),
+        # An identity mismatch is a policy failure even when the identity it
+        # got (which the image's publisher controls) reads like an outage.
+        (
+            "error: no matching signatures: none of the expected identities matched what was in the "
+            "certificate, got subjects [https://github.com/someone/timeout/.github/workflows/x.yml@refs/heads/main]",
+            1,
+        ),
+        (
+            "error: no matching signatures: got subjects "
+            "[https://github.com/someone/toomanyrequests/.github/workflows/x.yml@refs/heads/main]",
+            1,
+        ),
     ],
 )
 def test_classify_failure(output, expected):
@@ -448,6 +482,71 @@ def test_check_counts_unresolved_refs_without_failing(tmp_path, policy):
     assert [(u.lineno, u.raw) for u in report.unresolved] == [(2, "${IMAGE}")]
 
 
+@pytest.mark.parametrize(
+    "line",
+    [
+        f"FROM ghcr.io/example-org/tool:${{TAG}}@{D1}",
+        "FROM ghcr.io/example-org/${NAME}:1.0",
+        "FROM docker.io/example/${DB}:5",
+    ],
+)
+def test_check_fails_closed_when_a_variable_may_hide_a_listed_image(tmp_path, policy, line):
+    consumer = make_consumer(tmp_path / "repo", {"Dockerfile": f"ARG TAG\nARG NAME\nARG DB\n{line}\n"})
+    report = vip.check(consumer, policy, runner=FakeRunner(accept={D1}))
+    assert report.exit_code == 1
+    assert "unresolved variable" in report.failures[0].reason
+
+
+def test_check_fails_closed_on_a_listed_image_in_a_compose_block_scalar(tmp_path, policy):
+    compose = f"services:\n  tool:\n    image: >-\n      ghcr.io/example-org/tool:1.0@{D1}\n"
+    report = vip.check(make_consumer(tmp_path / "repo", {"compose.yaml": compose}), policy, FakeRunner(accept={D1}))
+    assert report.exit_code == 1
+    [failure] = report.failures
+    assert failure.lineno == 4
+    assert "not as a recognized image reference" in failure.reason
+
+
+def test_check_fails_closed_on_a_listed_image_in_flow_style_yaml(tmp_path, policy):
+    compose = f"services:\n  tool: {{image: 'ghcr.io/example-org/tool:1.0@{D1}'}}\n"
+    report = vip.check(make_consumer(tmp_path / "repo", {"compose.yaml": compose}), policy, FakeRunner(accept={D1}))
+    assert report.exit_code == 1
+
+
+def test_check_fails_closed_on_a_listed_image_used_outside_from(tmp_path, policy):
+    dockerfile = f"FROM example/base:1\nARG TOOL=ghcr.io/example-org/tool:1.0@{D1}\nRUN fetch $TOOL\n"
+    report = vip.check(make_consumer(tmp_path / "repo", {"Dockerfile": dockerfile}), policy, FakeRunner(accept={D1}))
+    assert report.exit_code == 1
+    assert report.failures[0].lineno == 2
+
+
+def test_check_accepts_an_arg_default_that_feeds_a_from_line(tmp_path, policy):
+    dockerfile = f"ARG TOOL=ghcr.io/example-org/tool:1.0@{D1}\n\nFROM ${{TOOL}}\n"
+    report = vip.check(make_consumer(tmp_path / "repo", {"Dockerfile": dockerfile}), policy, FakeRunner(accept={D1}))
+    assert report.exit_code == 0
+
+
+def test_check_accepts_a_listed_image_split_over_a_continuation(tmp_path, policy):
+    dockerfile = f"FROM example/base:1\nCOPY \\\n  --from=ghcr.io/example-org/tool:1.0@{D1} \\\n  /tool /tool\n"
+    report = vip.check(make_consumer(tmp_path / "repo", {"Dockerfile": dockerfile}), policy, FakeRunner(accept={D1}))
+    assert report.exit_code == 0
+    assert len(report.verified) == 1
+
+
+def test_check_ignores_comments_that_mention_a_listed_image(tmp_path, policy):
+    files = {
+        "Dockerfile": f"# built from ghcr.io/example-org/tool\nFROM ghcr.io/example-org/tool:1.0@{D1}\n",
+        "compose.yaml": f"services:\n  db:\n    image: example/db:5@{D2}  # mirrors ghcr.io/example-org/tool\n",
+    }
+    report = vip.check(make_consumer(tmp_path / "repo", files), policy, FakeRunner(accept={D1, D2}))
+    assert report.exit_code == 0
+
+
+def test_check_does_not_confuse_a_longer_name_with_a_listed_image(tmp_path, policy):
+    dockerfile = "FROM ghcr.io/example-org/toolbox:1\nRUN echo ghcr.io/example-org/tool-extras\n"
+    report = vip.check(make_consumer(tmp_path / "repo", {"Dockerfile": dockerfile}), policy, FakeRunner())
+    assert report.exit_code == 0
+
+
 def test_summary_lists_verified_images_failures_and_unsigned_images(tmp_path, policy):
     consumer = make_consumer(
         tmp_path / "repo",
@@ -496,6 +595,16 @@ def test_main_annotates_failures_on_github_actions(tmp_path, capsys, monkeypatch
     err = capsys.readouterr().err
     assert "::error file=" in err
     assert ",line=1::" in err
+
+
+def test_main_warns_about_unresolved_refs_on_github_actions(tmp_path, capsys, monkeypatch):
+    policy_path = write_policy(tmp_path / "policy")
+    make_consumer(tmp_path / "repo", {"Dockerfile": "ARG IMAGE\nFROM ${IMAGE}\n"})
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+    argv = ["--consumer-root", str(tmp_path / "repo"), "--signers", str(policy_path)]
+    assert vip.main(argv, runner=FakeRunner()) == 0
+    assert "::warning file=Dockerfile,line=2::" in capsys.readouterr().out
 
 
 def test_main_returns_2_on_an_unreadable_policy(tmp_path, capsys):

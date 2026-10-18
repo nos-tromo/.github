@@ -28,23 +28,36 @@ Verification methods (one per policy entry):
 Images that are not on the list are reported as unsigned (most upstream
 images publish no signature at all, so there is nothing to verify for them).
 A listed image pinned by tag only is a failure: without a digest there is
-nothing for a signature to cover. Refs that still contain an unresolved
-variable after ARG / ``${VAR:-default}`` expansion are counted and skipped.
+nothing for a signature to cover.
 
 Parsing is hand-rolled line matching rather than YAML or a Dockerfile
 parser, like the other validators here: the script must run in any
-consumer's environment with no installed dependencies. Verification shells
-out to ``gh`` / ``cosign`` and needs network access; ``gh`` also needs a
-token (``GH_TOKEN``).
+consumer's environment with no installed dependencies. Because a line
+parser can miss syntax it does not model, the check fails closed around
+listed images instead of trusting the parse:
+
+* a listed image name on any non-comment line that the parser did not read
+  as an image reference (a YAML block scalar or flow mapping, an ARG used
+  outside FROM, ...) is a failure;
+* a ref whose unresolved variable could stand for a listed image (the text
+  before the first ``$`` is a prefix of a listed name, or names one) is a
+  failure. Other refs with unresolved variables are skipped with a warning.
+
+ARG defaults and compose ``${VAR:-default}`` values are expanded; a
+Dockerfile ``# escape=`` directive is honored. Verification shells out to
+``gh`` / ``cosign`` and needs network access; ``gh`` also needs a token
+(``GH_TOKEN``).
 
 Writes a markdown table to ``$GITHUB_STEP_SUMMARY`` when that variable is
-set, and ``::error`` annotations when running on GitHub Actions.
+set, and ``::error`` / ``::warning`` annotations on GitHub Actions.
 
 Exit 0 when every listed image verifies (or there is nothing to check),
 1 on a policy failure (an unsigned or wrongly-signed digest, a listed image
-without a digest, or any failure the script cannot attribute to the
-network), 2 when the check could not run (a verifier missing, a network or
-service error, an unreadable policy). Stdlib-only; Python 3.11+.
+without a digest or outside a recognized reference, or any failure the
+script cannot attribute to the network), 2 when the check could not run (a
+verifier missing, a network or service error, an unreadable policy). Both
+non-zero codes fail CI; 2 only labels the cause, so a verifier message
+cannot turn a failure into a pass. Stdlib-only; Python 3.11+.
 """
 
 from __future__ import annotations
@@ -65,10 +78,24 @@ DEFAULT_POLICY = Path(__file__).resolve().parent.parent / "configs" / "image-pro
 
 DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::?-([^}]*))?\}|\$([A-Za-z_][A-Za-z0-9_]*)")
+DIRECTIVE_RE = re.compile(r"^#\s*([A-Za-z]+)\s*=\s*(\S+)\s*$")
 DOCKERFILE_RE = re.compile(r"^(?:Dockerfile(?:\..+)?|.+\.Dockerfile)$")
 COMPOSE_RE = re.compile(r"^(?:docker-)?compose(?:[.-][\w.-]+)?\.ya?ml$")
 IMAGE_LINE_RE = re.compile(r"^\s*(?:-\s+)?image:\s*(.*)$")
-SKIP_DIRS = {"node_modules"}
+# Tool and dependency directories: never consumer-authored image refs.
+SKIP_DIRS = {
+    ".git",
+    ".nos-tromo-github-ref",
+    ".venv",
+    "venv",
+    ".tox",
+    "node_modules",
+    ".pnpm-store",
+    "__pycache__",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".pytest_cache",
+}
 
 METHODS = ("github-attestation", "cosign-key", "cosign-keyless")
 POLICY_FIELDS = {
@@ -85,23 +112,24 @@ POLICY_FIELDS = {
     "certificate-oidc-issuer",
 }
 
-# Substrings (lower-cased) that mark a failure as "could not run" rather than
-# "not signed by the expected publisher". Anything else fails closed.
-TRANSIENT_MARKERS = (
-    "http 5",
-    "http 401",
-    "rate limit",
-    "toomanyrequests",
-    "no such host",
-    "timeout",
-    "timed out",
-    "deadline exceeded",
-    "connection reset",
-    "connection refused",
-    "tls handshake",
-    "temporary failure",
-    "unexpected eof",
-    "gh auth login",
+# Verifier messages (lower-cased) that mean the signature or identity check
+# itself ran and failed. They win over the network patterns below, because a
+# mismatch message echoes the identity it found, which the publisher of the
+# image controls.
+POLICY_MARKERS = (
+    "http 404",
+    "no signatures found",
+    "no matching signatures",
+    "none of the expected identities",
+    "got subjects",
+    "verifying with issuer",
+    "manifest unknown",
+)
+# Network, service and credential errors: the check could not run.
+TRANSIENT_RE = re.compile(
+    r"http 5\d\d|http 401|rate limit exceeded|toomanyrequests|no such host|i/o timeout|tls handshake timeout"
+    r"|deadline exceeded|connection reset by peer|connection refused|temporary failure in name resolution"
+    r"|unexpected eof|gh auth login"
 )
 
 Runner = Callable[..., subprocess.CompletedProcess[str]]
@@ -172,6 +200,22 @@ class Outcome:
     status: str
     detail: str
     signed_at: str | None = None
+
+
+@dataclass(frozen=True)
+class FileRef:
+    """An image reference as parsed from one file.
+
+    Attributes:
+        lineno: The line the instruction or ``image:`` key starts on.
+        raw: The reference after variable expansion.
+        cover: Every line the reference was read from: continuation lines,
+            and the lines of the ARG defaults it expanded.
+    """
+
+    lineno: int
+    raw: str
+    cover: frozenset[int]
 
 
 @dataclass(frozen=True)
@@ -253,12 +297,14 @@ def parse_image_ref(value: str) -> ImageRef | None:
     return ImageRef(registry, repository, tag, pinned_digest)
 
 
-def _expand(value: str, env: dict[str, str]) -> str:
+def _expand(value: str, env: dict[str, str], used: set[str] | None = None) -> str:
     """Expand ``$NAME``, ``${NAME}`` and ``${NAME:-default}`` from ``env``.
 
     Args:
         value: The text to expand.
         env: Known variable values.
+        used: When given, receives the names whose value from ``env`` was
+            substituted.
 
     Returns:
         The expanded text; variables with neither a value nor a default are
@@ -269,6 +315,8 @@ def _expand(value: str, env: dict[str, str]) -> str:
         name = match.group(1) or match.group(3)
         default = match.group(2)
         if env.get(name):
+            if used is not None:
+                used.add(name)
             return env[name]
         if default is not None:
             return default
@@ -277,32 +325,44 @@ def _expand(value: str, env: dict[str, str]) -> str:
     return VAR_RE.sub(replace, value)
 
 
-def _logical_lines(text: str) -> Iterator[tuple[int, str]]:
-    """Yield Dockerfile instructions with backslash continuations joined.
+def _logical_lines(text: str) -> Iterator[tuple[int, int, str]]:
+    """Yield Dockerfile instructions with line continuations joined.
+
+    The continuation character is a backslash unless a ``# escape=`` parser
+    directive at the top of the file sets another one.
 
     Args:
         text: Dockerfile contents.
 
     Yields:
-        ``(first line number, instruction)`` pairs, skipping blank lines and
-        comments (including comment lines inside a continuation).
+        ``(first line, last line, instruction)`` triples, skipping blank
+        lines and comments (including comment lines inside a continuation).
     """
+    lines = text.splitlines()
+    escape = "\\"
+    for raw in lines:
+        directive = DIRECTIVE_RE.match(raw.strip())
+        if directive is None:
+            break
+        if directive.group(1).lower() == "escape" and directive.group(2) in {"\\", "`"}:
+            escape = directive.group(2)
+
     parts: list[str] = []
     start = 0
-    for lineno, raw in enumerate(text.splitlines(), start=1):
+    for lineno, raw in enumerate(lines, start=1):
         stripped = raw.strip()
         if not stripped or stripped.startswith("#"):
             continue
         if not parts:
             start = lineno
-        if stripped.endswith("\\"):
-            parts.append(stripped[:-1].strip())
+        if stripped.endswith(escape):
+            parts.append(stripped[: -len(escape)].strip())
             continue
         parts.append(stripped)
-        yield start, " ".join(parts)
+        yield start, lineno, " ".join(parts)
         parts = []
     if parts:
-        yield start, " ".join(parts)
+        yield start, len(lines), " ".join(parts)
 
 
 def _unquote(value: str) -> str:
@@ -310,6 +370,55 @@ def _unquote(value: str) -> str:
     if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
         return value[1:-1]
     return value
+
+
+def _dockerfile_refs(text: str) -> list[FileRef]:
+    """Find the image references in a Dockerfile, with the lines they cover.
+
+    Args:
+        text: Dockerfile contents.
+
+    Returns:
+        One entry per ``FROM`` image and ``COPY``/``ADD --from=`` image, in
+        file order.
+    """
+    env: dict[str, tuple[str, frozenset[int]]] = {}
+    stages: set[str] = set()
+    refs: list[FileRef] = []
+
+    def expand(value: str, span: frozenset[int]) -> tuple[str, frozenset[int]]:
+        used: set[str] = set()
+        expanded = _expand(value, {name: v for name, (v, _) in env.items()}, used)
+        lines = set(span)
+        for name in used:
+            lines |= env[name][1]
+        return expanded, frozenset(lines)
+
+    for start, end, line in _logical_lines(text):
+        span = frozenset(range(start, end + 1))
+        tokens = line.split()
+        keyword = tokens[0].upper()
+        if keyword == "ARG":
+            for token in tokens[1:]:
+                name, sep, default = token.partition("=")
+                if sep:
+                    env[name] = expand(_unquote(default), span)
+        elif keyword == "FROM":
+            args = [t for t in tokens[1:] if not t.startswith("--")]
+            if not args:
+                continue
+            if len(args) >= 3 and args[1].lower() == "as":
+                stages.add(args[2].lower())
+            image, cover = expand(args[0], span)
+            if image.lower() not in stages and image.lower() != "scratch":
+                refs.append(FileRef(start, image, cover))
+        elif keyword in {"COPY", "ADD"}:
+            for token in tokens[1:]:
+                if token.startswith("--from="):
+                    source, cover = expand(token.removeprefix("--from="), span)
+                    if source.lower() not in stages and not source.isdigit():
+                        refs.append(FileRef(start, source, cover))
+    return refs
 
 
 def dockerfile_refs(text: str) -> list[tuple[int, str]]:
@@ -325,33 +434,12 @@ def dockerfile_refs(text: str) -> list[tuple[int, str]]:
     Returns:
         ``(line number, expanded reference)`` pairs in file order.
     """
-    env: dict[str, str] = {}
-    stages: set[str] = set()
-    refs: list[tuple[int, str]] = []
-    for lineno, line in _logical_lines(text):
-        tokens = line.split()
-        keyword = tokens[0].upper()
-        if keyword == "ARG":
-            for token in tokens[1:]:
-                name, sep, default = token.partition("=")
-                if sep:
-                    env[name] = _expand(_unquote(default), env)
-        elif keyword == "FROM":
-            args = [t for t in tokens[1:] if not t.startswith("--")]
-            if not args:
-                continue
-            if len(args) >= 3 and args[1].lower() == "as":
-                stages.add(args[2].lower())
-            image = _expand(args[0], env)
-            if image.lower() not in stages and image.lower() != "scratch":
-                refs.append((lineno, image))
-        elif keyword in {"COPY", "ADD"}:
-            for token in tokens[1:]:
-                if token.startswith("--from="):
-                    source = _expand(token.removeprefix("--from="), env)
-                    if source.lower() not in stages and not source.isdigit():
-                        refs.append((lineno, source))
-    return refs
+    return [(ref.lineno, ref.raw) for ref in _dockerfile_refs(text)]
+
+
+def _compose_refs(text: str) -> list[FileRef]:
+    """Find the ``image:`` references in a compose file (see :func:`compose_refs`)."""
+    return [FileRef(lineno, raw, frozenset({lineno})) for lineno, raw in compose_refs(text)]
 
 
 def compose_refs(text: str) -> list[tuple[int, str]]:
@@ -395,13 +483,16 @@ def target_files(consumer_root: Path) -> list[Path]:
         consumer_root: The consumer repo root to inspect.
 
     Returns:
-        Matching files sorted by their path relative to the root. Hidden
-        directories (``.git``, a ``.nos-tromo-github-ref`` checkout of this
-        repo, ...) and ``node_modules`` are skipped.
+        Matching files sorted by their path relative to the root. Tool and
+        dependency directories (:data:`SKIP_DIRS`: ``.git``, a
+        ``.nos-tromo-github-ref`` checkout of this repo, virtualenvs,
+        ``node_modules``, ...) and nested checkouts (any subdirectory with
+        its own ``.git``, e.g. a local worktree) are skipped; other hidden
+        directories such as ``.devcontainer`` are scanned.
     """
     found: list[Path] = []
     for directory, dirnames, filenames in os.walk(consumer_root):
-        dirnames[:] = [d for d in dirnames if not d.startswith(".") and d not in SKIP_DIRS]
+        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS and not (Path(directory) / d / ".git").exists()]
         for filename in filenames:
             is_dockerfile = DOCKERFILE_RE.match(filename) and not filename.endswith(".dockerignore")
             if is_dockerfile or COMPOSE_RE.match(filename):
@@ -409,17 +500,101 @@ def target_files(consumer_root: Path) -> list[Path]:
     return sorted(found, key=lambda p: p.relative_to(consumer_root).as_posix())
 
 
-def refs_in_file(path: Path) -> list[tuple[int, str]]:
-    """Return the image references in one Dockerfile or compose file.
+def _is_compose(path: Path) -> bool:
+    """Return whether a target file is a compose file (else a Dockerfile)."""
+    return bool(COMPOSE_RE.match(path.name))
+
+
+def _name_forms(name: str) -> list[str]:
+    """Return the spellings a fully qualified image name can be written in.
 
     Args:
-        path: A file returned by :func:`target_files`.
+        name: A policy image name, e.g. ``docker.io/qdrant/qdrant``.
 
     Returns:
-        ``(line number, reference)`` pairs.
+        The name itself, plus the registry-less and ``index.docker.io``
+        spellings for Docker Hub images.
     """
-    text = path.read_text()
-    return compose_refs(text) if COMPOSE_RE.match(path.name) else dockerfile_refs(text)
+    forms = [name]
+    registry, _, repository = name.partition("/")
+    if registry == "docker.io":
+        forms += [repository, f"index.docker.io/{repository}"]
+        if repository.startswith("library/"):
+            forms.append(repository.removeprefix("library/"))
+    return forms
+
+
+def _hidden_listed_name(raw: str, policy: dict[str, Signer]) -> str | None:
+    """Return the listed image an unresolved variable could stand for.
+
+    Args:
+        raw: A ref that still contains ``$`` after expansion.
+        policy: The loaded signer policy.
+
+    Returns:
+        A listed image name when the text before the first ``$`` is a prefix
+        of one of its spellings, or names it outright (followed by a tag,
+        a digest, or nothing); ``None`` when nothing literal is left to judge.
+    """
+    prefix = raw.split("$", 1)[0]
+    if not prefix:
+        return None
+    for name in policy:
+        for form in _name_forms(name):
+            if form.startswith(prefix):
+                return name
+            if prefix.startswith(form) and prefix[len(form) : len(form) + 1] in {"", ":", "@"}:
+                return name
+    return None
+
+
+def _unrecognized_mentions(
+    path: Path, text: str, refs: list[FileRef], policy: dict[str, Signer], flagged: set[int]
+) -> list[Failure]:
+    """Find listed image names on lines the parser did not read as references.
+
+    Args:
+        path: The file being checked.
+        text: Its contents.
+        refs: The references parsed from it.
+        policy: The loaded signer policy.
+        flagged: Lines already reported, so a line fails once.
+
+    Returns:
+        One failure per non-comment line that mentions a listed image (in
+        any spelling) without being part of a parsed reference to it.
+    """
+    covered: dict[str, set[int]] = {}
+    for ref in refs:
+        parsed = parse_image_ref(ref.raw)
+        if parsed is not None and parsed.name in policy:
+            covered.setdefault(parsed.name, set()).update(ref.cover)
+    patterns = {
+        name: re.compile(
+            r"(?<![\w./-])(?:"
+            + "|".join(re.escape(f) for f in sorted(_name_forms(name), key=len, reverse=True))
+            + r")(?![\w./-])"
+        )
+        for name in policy
+    }
+    compose = _is_compose(path)
+    failures: list[Failure] = []
+    for lineno, raw in enumerate(text.splitlines(), start=1):
+        line = raw.strip()
+        if not line or line.startswith("#") or lineno in flagged:
+            continue
+        if compose:
+            line = re.split(r"\s+#", line, maxsplit=1)[0]
+        for name, pattern in patterns.items():
+            if pattern.search(line) and lineno not in covered.get(name, set()):
+                reason = (
+                    f"{name} appears here but not as a recognized image reference (FROM, COPY --from= or "
+                    "image:); write it as a plain reference so its signature can be verified"
+                )
+                failures.append(Failure(path, lineno, line, reason))
+                flagged.add(lineno)
+                break
+    return failures
 
 
 def load_policy(path: Path) -> dict[str, Signer]:
@@ -537,7 +712,9 @@ def classify_failure(output: str) -> int:
         for output nobody anticipated, so an unknown failure fails closed.
     """
     lowered = output.lower()
-    return 2 if any(marker in lowered for marker in TRANSIENT_MARKERS) else 1
+    if any(marker in lowered for marker in POLICY_MARKERS):
+        return 1
+    return 2 if TRANSIENT_RE.search(lowered) else 1
 
 
 def _first_json(stdout: str) -> object:
@@ -635,11 +812,25 @@ def check(
     report = Report(files=target_files(consumer_root) if files is None else files)
     pending: dict[str, tuple[Signer, ImageRef, list[Located]]] = {}
     for path in report.files:
-        for lineno, raw in refs_in_file(path):
+        text = path.read_text()
+        refs = _compose_refs(text) if _is_compose(path) else _dockerfile_refs(text)
+        flagged: set[int] = set()
+        for file_ref in refs:
+            lineno, raw = file_ref.lineno, file_ref.raw
             ref = parse_image_ref(raw)
             if ref is None:
-                if "$" in raw:
+                if "$" not in raw:
+                    continue
+                hidden = _hidden_listed_name(raw, policy)
+                if hidden is None:
                     report.unresolved.append(Located(path, lineno, raw))
+                    continue
+                reason = (
+                    f"unresolved variable in a ref that may name {hidden}, a signed image; write refs to "
+                    "signed images literally so they can be verified"
+                )
+                report.failures.append(Failure(path, lineno, raw, reason))
+                flagged.add(lineno)
                 continue
             signer = policy.get(ref.name)
             if signer is None:
@@ -652,8 +843,10 @@ def check(
                     f"{raw}@sha256:<digest> so its signature can be verified"
                 )
                 report.failures.append(Failure(path, lineno, raw, reason))
+                flagged.add(lineno)
                 continue
             pending.setdefault(ref.pinned, (signer, ref, []))[2].append(Located(path, lineno, raw))
+        report.failures.extend(_unrecognized_mentions(path, text, refs, policy, flagged))
 
     for pinned, (signer, ref, places) in pending.items():
         outcome = verify(signer, ref, runner)
@@ -692,8 +885,10 @@ def render_summary(report: Report) -> str:
         rows.append(f"| `{ref.name}` | `{short}` | {_cell(result)} | {_cell(signer)} | {signed} |")
     for failure in report.failures:
         ref = parse_image_ref(failure.raw)
-        if ref is not None and ref.digest is None:
-            rows.append(f"| `{ref.name}` | — | **FAILED**: not digest-pinned | | |")
+        if ref is not None and ref.digest is not None and ref.pinned in report.results:
+            continue  # already a row above, from the verifier's result
+        where = f"{failure.path.name}:{failure.lineno}"
+        rows.append(f"| `{_cell(failure.raw)}` | — | **FAILED**: {_cell(failure.reason)} ({where}) | | |")
     if rows:
         lines += ["| Image | Digest | Result | Signed by | Signed |", "|---|---|---|---|---|", *rows, ""]
     else:
@@ -717,6 +912,10 @@ def _relative(path: Path, root: Path) -> str:
 def _print_report(report: Report, consumer_root: Path) -> None:
     """Print the human-readable result and GitHub annotations."""
     on_actions = os.environ.get("GITHUB_ACTIONS") == "true"
+    for unresolved in report.unresolved:
+        rel = _relative(unresolved.path, consumer_root)
+        message = f"{unresolved.raw}: unresolved variable; this ref was not checked"
+        print(f"::warning file={rel},line={unresolved.lineno}::{message}" if on_actions else f"warning: {message}")
     if report.unsigned:
         print(f"unsigned upstream images (nothing to verify): {', '.join(sorted(report.unsigned))}")
     if report.exit_code == 0:
