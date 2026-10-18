@@ -497,6 +497,32 @@ def test_check_fails_closed_when_a_variable_may_hide_a_listed_image(tmp_path, po
     assert "unresolved variable" in report.failures[0].reason
 
 
+@pytest.mark.parametrize(
+    "files",
+    [
+        {"compose.yaml": f"services:\n  db:\n    image: ${{REGISTRY}}/example/db:5@{D2}\n"},
+        {"Dockerfile": f"ARG REGISTRY\nFROM ${{REGISTRY}}/example-org/tool:1.0@{D1}\n"},
+        {"Dockerfile": f"ARG REG\nFROM $REG/example-org/tool:1.0@{D1}\n"},
+        {"Dockerfile": f"ARG MIRROR\nFROM ${{MIRROR}}example-org/tool:1.0@{D1}\n"},
+    ],
+)
+def test_check_fails_closed_on_a_variable_prefix_before_a_listed_repository(tmp_path, policy, files):
+    report = vip.check(make_consumer(tmp_path / "repo", files), policy, runner=FakeRunner(accept={D1, D2}))
+    assert report.exit_code == 1
+    assert "unresolved variable" in report.failures[0].reason
+
+
+def test_a_variable_prefix_before_an_unlisted_repository_only_warns(tmp_path, policy):
+    files = {
+        "Dockerfile": (
+            "ARG REG\nFROM ${REG}/example-org/tool-extras:1\nFROM ${REG}/someone/example-org/tool:1\n"
+        )
+    }
+    report = vip.check(make_consumer(tmp_path / "repo", files), policy, runner=FakeRunner())
+    assert report.exit_code == 0
+    assert len(report.unresolved) == 2
+
+
 def test_check_fails_closed_on_a_listed_image_in_a_compose_block_scalar(tmp_path, policy):
     compose = f"services:\n  tool:\n    image: >-\n      ghcr.io/example-org/tool:1.0@{D1}\n"
     report = vip.check(make_consumer(tmp_path / "repo", {"compose.yaml": compose}), policy, FakeRunner(accept={D1}))

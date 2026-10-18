@@ -533,18 +533,23 @@ def _hidden_listed_name(raw: str, policy: dict[str, Signer]) -> str | None:
 
     Returns:
         A listed image name when the text before the first ``$`` is a prefix
-        of one of its spellings, or names it outright (followed by a tag,
-        a digest, or nothing); ``None`` when nothing literal is left to judge.
+        of one of its spellings or names it outright (followed by a tag, a
+        digest, or nothing), or when a listed repository path follows a
+        variable directly (a registry or mirror prefix such as
+        ``${REGISTRY}/org/repo``); ``None`` otherwise.
     """
     prefix = raw.split("$", 1)[0]
-    if not prefix:
-        return None
     for name in policy:
-        for form in _name_forms(name):
-            if form.startswith(prefix):
-                return name
-            if prefix.startswith(form) and prefix[len(form) : len(form) + 1] in {"", ":", "@"}:
-                return name
+        if prefix:
+            for form in _name_forms(name):
+                if form.startswith(prefix):
+                    return name
+                if prefix.startswith(form) and prefix[len(form) : len(form) + 1] in {"", ":", "@"}:
+                    return name
+        repository = name.partition("/")[2]
+        masked = VAR_RE.sub("\0", raw)
+        if re.search(r"\0/?" + re.escape(repository) + r"(?=[:@]|$)", masked):
+            return name
     return None
 
 
