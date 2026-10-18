@@ -205,8 +205,8 @@ glob_count = { pattern = ".github/workflows/*.yml", containing = '^\s*workflow_c
 [[claim]]
 id = "hub-validator-count"
 repo = ".github"
-quote = "seven drift validators in all"
-glob_count = { pattern = "scripts/validate_*.py", eq = 7 }
+quote = "eight validators in all"
+glob_count = { pattern = "scripts/validate_*.py", eq = 8 }
 
 [[claim]]
 id = "hub-vendored-canonical-files"
