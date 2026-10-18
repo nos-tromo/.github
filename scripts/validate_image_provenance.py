@@ -539,6 +539,9 @@ def _hidden_listed_name(raw: str, policy: dict[str, Signer]) -> str | None:
         ``${REGISTRY}/org/repo``); ``None`` otherwise.
     """
     prefix = raw.split("$", 1)[0]
+    # Every unresolved variable, including the ${VAR:?err} / ${VAR:+alt}
+    # modifier forms that expansion leaves in place.
+    masked = re.sub(r"\$\{[^}]*\}|\$[A-Za-z_][A-Za-z0-9_]*", "\0", raw)
     for name in policy:
         if prefix:
             for form in _name_forms(name):
@@ -546,10 +549,13 @@ def _hidden_listed_name(raw: str, policy: dict[str, Signer]) -> str | None:
                     return name
                 if prefix.startswith(form) and prefix[len(form) : len(form) + 1] in {"", ":", "@"}:
                     return name
-        repository = name.partition("/")[2]
-        masked = VAR_RE.sub("\0", raw)
-        if re.search(r"\0/?" + re.escape(repository) + r"(?=[:@]|$)", masked):
-            return name
+        registry, _, repository = name.partition("/")
+        paths = {repository}
+        if registry == "docker.io" and repository.startswith("library/"):
+            paths.add(repository.removeprefix("library/"))
+        for path in paths:
+            if re.search(r"\0/?" + re.escape(path) + r"(?=[:@]|$)", masked):
+                return name
     return None
 
 

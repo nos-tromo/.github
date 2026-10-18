@@ -512,6 +512,28 @@ def test_check_fails_closed_on_a_variable_prefix_before_a_listed_repository(tmp_
     assert "unresolved variable" in report.failures[0].reason
 
 
+@pytest.mark.parametrize(
+    "line",
+    [
+        f"image: ${{REGISTRY:?set the registry}}/example/db:5@{D2}",
+        f"image: ${{REGISTRY:+mirror.example}}/example/db:5@{D2}",
+        f"image: ${{REGISTRY?}}/example/db:5@{D2}",
+    ],
+)
+def test_check_fails_closed_on_a_modifier_variable_before_a_listed_repository(tmp_path, policy, line):
+    compose = f"services:\n  db:\n    {line}\n"
+    report = vip.check(make_consumer(tmp_path / "repo", {"compose.yaml": compose}), policy, FakeRunner(accept={D2}))
+    assert report.exit_code == 1
+
+
+def test_check_fails_closed_on_a_variable_before_a_listed_official_image_short_name(tmp_path):
+    entry = '[[image]]\nname = "docker.io/library/exampleimg"\nmethod = "cosign-key"\nkey = "keys/example.pub"\n'
+    policy = vip.load_policy(write_policy(tmp_path / "policy", entry))
+    consumer = make_consumer(tmp_path / "repo", {"Dockerfile": f"ARG REG\nFROM ${{REG}}/exampleimg:1@{D1}\n"})
+    report = vip.check(consumer, policy, runner=FakeRunner(accept={D1}))
+    assert report.exit_code == 1
+
+
 def test_a_variable_prefix_before_an_unlisted_repository_only_warns(tmp_path, policy):
     files = {
         "Dockerfile": (
