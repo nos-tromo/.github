@@ -114,8 +114,10 @@ The rules:
 - The check fails closed around listed images it cannot read. A listed name
   on any non-comment line that was not parsed as a reference (a YAML block
   scalar or flow mapping, an `ARG` used outside `FROM`) is a failure, and so
-  is a ref whose unresolved variable could stand for a listed image. Other
-  refs with unresolved variables are skipped with a warning.
+  is a ref whose unresolved variables could stand for a listed image — for
+  example a registry or mirror variable in front of a listed repository
+  (`${REGISTRY}/qdrant/qdrant`). Refs with no literal name left are skipped
+  with a warning.
 - Exit 0 means every listed image verified, 1 is a policy failure, and 2
   means the check could not run (a verifier missing, a network or service
   error). Both non-zero codes fail CI; 2 only labels the cause.

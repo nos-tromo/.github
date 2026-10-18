@@ -39,9 +39,12 @@ listed images instead of trusting the parse:
 * a listed image name on any non-comment line that the parser did not read
   as an image reference (a YAML block scalar or flow mapping, an ARG used
   outside FROM, ...) is a failure;
-* a ref whose unresolved variable could stand for a listed image (the text
-  before the first ``$`` is a prefix of a listed name, or names one) is a
-  failure. Other refs with unresolved variables are skipped with a warning.
+* a ref whose unresolved variables could stand for a listed image is a
+  failure: the text before the first ``$`` is a prefix of a listed name or
+  names one, or the registry segment holds a variable and some value of the
+  variables would make a listed repository the ref's repository
+  (``${REGISTRY}/qdrant/qdrant``). Refs with no literal name left are
+  skipped with a warning.
 
 ARG defaults and compose ``${VAR:-default}`` values are expanded; a
 Dockerfile ``# escape=`` directive is honored. Verification shells out to
@@ -63,6 +66,8 @@ cannot turn a failure into a pass. Stdlib-only; Python 3.11+.
 from __future__ import annotations
 
 import argparse
+import fnmatch
+import glob
 import json
 import os
 import re
@@ -524,6 +529,76 @@ def _name_forms(name: str) -> list[str]:
     return forms
 
 
+def _mask_variables(raw: str) -> str:
+    """Replace every unresolved variable with a NUL wildcard marker.
+
+    Handles ``$NAME``, ``${...}`` with any modifier (``:?``, ``:+``, ...) and
+    nested ``${A:+${B}}``, which a plain ``[^}]*`` pattern would cut short.
+
+    Args:
+        raw: A ref that still contains ``$`` after expansion.
+
+    Returns:
+        The ref with each variable collapsed to one NUL character.
+    """
+    out: list[str] = []
+    i = 0
+    while i < len(raw):
+        if raw.startswith("${", i):
+            depth, j = 1, i + 2
+            while j < len(raw) and depth:
+                if raw.startswith("${", j):
+                    depth, j = depth + 1, j + 2
+                    continue
+                if raw[j] == "}":
+                    depth -= 1
+                j += 1
+            out.append("\0")
+            i = j
+            continue
+        name = re.match(r"\$[A-Za-z_][A-Za-z0-9_]*", raw[i:])
+        if name:
+            out.append("\0")
+            i += name.end()
+            continue
+        out.append(raw[i])
+        i += 1
+    return "".join(out)
+
+
+def _could_be_repository(masked: str, path: str) -> bool:
+    """Return whether some value of the variables makes ``path`` the ref's repository.
+
+    Every NUL marker is a wildcard. The repository starts at the beginning (a
+    Docker Hub short name), right after a variable, or right after a
+    registry segment without a ``/``; it ends at a tag, a digest, a
+    variable, or the end. A candidate must keep at least one literal letter
+    or digit, so a ref that is nothing but variables only warns.
+
+    Args:
+        masked: The ref after :func:`_mask_variables`.
+        path: A listed repository path, e.g. ``qdrant/qdrant``.
+
+    Returns:
+        ``True`` when the literal parts are consistent with ``path``.
+    """
+    n = len(masked)
+    for i in range(n):
+        head = masked[:i]
+        if not (i == 0 or head.endswith("\0") or re.fullmatch(r"[^/]*/", head)):
+            continue
+        for j in range(i + 1, n + 1):
+            if not (j == n or masked[j] in ":@\0" or masked[j - 1] == "\0"):
+                continue
+            piece = masked[i:j]
+            if not any(c.isalnum() for c in piece.replace("\0", "")):
+                continue
+            pattern = "".join("*" if c == "\0" else glob.escape(c) for c in piece)
+            if fnmatch.fnmatchcase(path, pattern):
+                return True
+    return False
+
+
 def _hidden_listed_name(raw: str, policy: dict[str, Signer]) -> str | None:
     """Return the listed image an unresolved variable could stand for.
 
@@ -534,14 +609,14 @@ def _hidden_listed_name(raw: str, policy: dict[str, Signer]) -> str | None:
     Returns:
         A listed image name when the text before the first ``$`` is a prefix
         of one of its spellings or names it outright (followed by a tag, a
-        digest, or nothing), or when a listed repository path follows a
-        variable directly (a registry or mirror prefix such as
-        ``${REGISTRY}/org/repo``); ``None`` otherwise.
+        digest, or nothing), or, when the registry segment itself holds a
+        variable (``${REGISTRY}/org/repo``, ``${HOST}.io/...``), when some
+        value of the variables would make a listed repository path the
+        ref's repository; ``None`` otherwise.
     """
     prefix = raw.split("$", 1)[0]
-    # Every unresolved variable, including the ${VAR:?err} / ${VAR:+alt}
-    # modifier forms that expansion leaves in place.
-    masked = re.sub(r"\$\{[^}]*\}|\$[A-Za-z_][A-Za-z0-9_]*", "\0", raw)
+    masked = _mask_variables(raw)
+    variable_registry = "\0" in masked.split("/", 1)[0]
     for name in policy:
         if prefix:
             for form in _name_forms(name):
@@ -549,13 +624,14 @@ def _hidden_listed_name(raw: str, policy: dict[str, Signer]) -> str | None:
                     return name
                 if prefix.startswith(form) and prefix[len(form) : len(form) + 1] in {"", ":", "@"}:
                     return name
+        if not variable_registry:
+            continue
         registry, _, repository = name.partition("/")
         paths = {repository}
         if registry == "docker.io" and repository.startswith("library/"):
             paths.add(repository.removeprefix("library/"))
-        for path in paths:
-            if re.search(r"\0/?" + re.escape(path) + r"(?=[:@]|$)", masked):
-                return name
+        if any(_could_be_repository(masked, path) for path in paths):
+            return name
     return None
 
 

@@ -97,8 +97,16 @@ Rather than trust the parse, the check fails closed:
 - A listed image name on any non-comment line that was not read as part of a
   reference fails. Continuation lines and the `ARG` default lines that feed a
   `FROM` count as part of the reference.
-- A ref whose unresolved variable could stand for a listed image fails: the
-  text before the first `$` is a prefix of a listed name, or names one.
+- A ref whose unresolved variables could stand for a listed image fails. It
+  fails when the text before the first `$` is a prefix of a listed name or
+  names one. It also fails when the registry segment holds a variable and
+  some value of the variables would make a listed repository the ref's
+  repository: each variable is treated as a wildcard. This covers mirror
+  prefixes (`${REGISTRY}/qdrant/qdrant`), nested and modifier forms
+  (`${A:+${B}}`, `${VAR:?err}`), and variables in the tag position. Only a
+  ref with no literal name left is merely warned about. The first two
+  versions of this rule each missed a spelling, and review (one fresh
+  reviewer, two automated passes) found it.
 - The `escape` directive is honored.
 
 ### Exit codes

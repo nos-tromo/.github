@@ -526,6 +526,31 @@ def test_check_fails_closed_on_a_modifier_variable_before_a_listed_repository(tm
     assert report.exit_code == 1
 
 
+@pytest.mark.parametrize(
+    "line",
+    [
+        f"image: ${{A:+${{B}}}}/example/db:5@{D2}",  # nested variable
+        "image: ${REG}/example/db${TAG}",  # variable right after the listed path
+        "image: ${REG}/example/db${SEP}5",  # a variable that may be the tag separator
+        "image: ${REG}/example/${NAME}:5",  # variable for the last path component
+        f"image: ${{HOST}}.io/example-org/tool:1.0@{D1}",  # variable inside the registry host
+    ],
+)
+def test_check_fails_closed_when_some_value_of_the_variables_names_a_listed_image(tmp_path, policy, line):
+    compose = f"services:\n  db:\n    {line}\n"
+    report = vip.check(make_consumer(tmp_path / "repo", {"compose.yaml": compose}), policy, FakeRunner(accept={D1, D2}))
+    assert report.exit_code == 1
+    assert "unresolved variable" in report.failures[0].reason
+
+
+@pytest.mark.parametrize("line", ["image: ${IMAGE}", "image: ${REGISTRY}/${IMAGE}:${TAG}"])
+def test_a_ref_with_no_literal_name_left_only_warns(tmp_path, policy, line):
+    compose = f"services:\n  db:\n    {line}\n"
+    report = vip.check(make_consumer(tmp_path / "repo", {"compose.yaml": compose}), policy, FakeRunner())
+    assert report.exit_code == 0
+    assert len(report.unresolved) == 1
+
+
 def test_check_fails_closed_on_a_variable_before_a_listed_official_image_short_name(tmp_path):
     entry = '[[image]]\nname = "docker.io/library/exampleimg"\nmethod = "cosign-key"\nkey = "keys/example.pub"\n'
     policy = vip.load_policy(write_policy(tmp_path / "policy", entry))
