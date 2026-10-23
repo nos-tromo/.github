@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Behavioral guard for bundle_checkout_release() in configs/bundle/bundle-lib.sh.
 # Production `make bundle` resolves the latest annotated tag reachable from HEAD,
-# checks it out (detached), and restores the original branch on exit. It refuses
+# switches to it (detached) and STAYS there on success; on a failed exit it
+# switches back to the original branch or detached commit. When HEAD already is
+# the tag's commit nothing is switched and the branch is kept. It refuses
 # on a dirty tracked tree or when no annotated tag is reachable; an explicit
 # <REPO_UC>_VERSION_OVERRIDE short-circuits it (dev escape hatch). Untracked /
 # gitignored files (e.g. .env) are ignored by the dirty check and preserved.
@@ -30,7 +32,8 @@ make_repo_tagged() {
   printf '%s' "$d"
 }
 
-# Case 1: latest reachable tag is checked out, branch restored on subshell exit.
+# Case 1: latest reachable tag is checked out and HEAD stays there (detached)
+# after a successful exit.
 d="$(make_repo_tagged)"
 (
   cd "$d"
@@ -40,7 +43,8 @@ d="$(make_repo_tagged)"
   [[ "$head_sha" == "$tag_sha" ]] || fail "case1: expected HEAD at v1.0.0, got $head_sha"
 )
 now="$(git -C "$d" symbolic-ref --quiet --short HEAD || echo DETACHED)"
-[[ "$now" == "main" ]] || fail "case1: expected branch main restored, got $now"
+[[ "$now" == "DETACHED" ]] || fail "case1: expected HEAD to stay detached on the tag, got branch $now"
+[[ "$(git -C "$d" describe --exact-match HEAD)" == "v1.0.0" ]] || fail "case1: HEAD left the tag on success"
 
 # Case 2: dirty tracked tree -> refused (nonzero), HEAD unmoved.
 d="$(make_repo_tagged)"
@@ -82,6 +86,46 @@ d="$(make_repo_tagged)"
   bundle_checkout_release demo               # must not refuse
   [[ -f .env ]] || fail "case5: .env must survive the checkout"
 )
-[[ "$(git -C "$d" symbolic-ref --quiet --short HEAD)" == "main" ]] || fail "case5: branch not restored"
+[[ "$(git -C "$d" describe --exact-match HEAD)" == "v1.0.0" ]] || fail "case5: HEAD left the tag on success"
 
-echo "OK: bundle_checkout_release (resolve latest tag, checkout+restore, refuse dirty/no-tag, override + untracked-safe)"
+# Case 6: a failed exit after the checkout switches back to the original branch.
+d="$(make_repo_tagged)"
+if (
+  cd "$d"
+  bundle_checkout_release demo
+  exit 1                                     # e.g. the compose build failed
+); then
+  fail "case6: subshell should have failed"
+fi
+now="$(git -C "$d" symbolic-ref --quiet --short HEAD || echo DETACHED)"
+[[ "$now" == "main" ]] || fail "case6: expected branch main after a failed bundle, got $now"
+
+# Case 7: started on a detached commit, failed exit -> back on that commit,
+# still detached (not on a branch, not on the tag).
+d="$(make_repo_tagged)"
+start_sha="$(git -C "$d" rev-parse HEAD)"
+git -C "$d" switch --quiet --detach "$start_sha"
+if (
+  cd "$d"
+  bundle_checkout_release demo
+  exit 1
+); then
+  fail "case7: subshell should have failed"
+fi
+git -C "$d" symbolic-ref --quiet HEAD >/dev/null && fail "case7: expected detached HEAD, got a branch"
+[[ "$(git -C "$d" rev-parse HEAD)" == "$start_sha" ]] || fail "case7: expected HEAD back at $start_sha"
+
+# Case 8: HEAD already at the tag's commit -> no switch, branch kept.
+d="$(mktemp -d)"; _TMP_REPOS+=("$d")
+git -C "$d" init -q -b main
+git -C "$d" config user.email t@example.com; git -C "$d" config user.name test
+git -C "$d" commit -q --allow-empty -m only
+git -C "$d" tag -a v1.0.0 -m release
+(
+  cd "$d"
+  bundle_checkout_release demo
+  [[ "$(git symbolic-ref --short HEAD)" == "main" ]] || fail "case8: should not detach when already at the tag"
+)
+[[ "$(git -C "$d" symbolic-ref --quiet --short HEAD)" == "main" ]] || fail "case8: branch not kept"
+
+echo "OK: bundle_checkout_release (resolve latest tag, stay on success, switch back on failure, no-op at tag, refuse dirty/no-tag, override + untracked-safe)"
