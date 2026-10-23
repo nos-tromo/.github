@@ -1,7 +1,9 @@
 # Bundle release checkout — `make bundle` builds the latest tag, `make bundle-dev` builds local state
 
 - **Date:** 2026-07-03
-- **Status:** Approved design (pre-implementation)
+- **Status:** Approved design (pre-implementation). The restore-on-every-exit
+  behavior (§3.1's EXIT trap, §7) is superseded by
+  `2026-10-23-bundle-stays-on-tag-design.md`.
 - **Scope:** Federation-wide (the `nos-tromo` image-bundling repos on the shared `common.mk` / `bundle-lib.sh`)
 - **Canonical config repo:** `nos-tromo/.github`
 - **Supersedes:** §4.3–§4.4 of `infra/docs/2026-07-02-federation-release-workflow-design.md`
