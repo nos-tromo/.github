@@ -21,9 +21,9 @@
 [[claim]]
 id = "vllm-cpu-only-shapes"
 repo = "vllm-service"
-quote = "seven single-service CPU-only shapes"
+quote = "eight single-service CPU-only shapes"
 says = "one compose file per single-service shape"
-glob_count = { pattern = "docker/compose.*-only.yaml", eq = 7 }
+glob_count = { pattern = "docker/compose.*-only.yaml", eq = 8 }
 
 [[claim]]
 id = "vllm-router-fronts-everything"
@@ -130,10 +130,20 @@ says = "one module per tool; leading-underscore helpers are not tools"
 glob_count = { pattern = "chorus/tools/[!_]*.py", eq = 9 }
 
 [[claim]]
+id = "chorus-retention-dates"
+repo = "chorus"
+quote = "per-post retention dates"
+says = "ingestion stamps retention_until on each post"
+file = "chorus/ingestion/comments.py"
+matches = 'retention_until=retention\.until\('
+
+[[claim]]
 id = "chorus-audit-log"
 repo = "chorus"
-quote = "§76 BDSG audit logging"
-exists = ["chorus/audit/logger.py"]
+quote = "an append-only audit log of every tool call"
+says = "triggers reject UPDATE and DELETE on audit rows"
+file = "chorus/audit/schema.sql"
+matches = '^CREATE TRIGGER IF NOT EXISTS audit_no_(update|delete)'
 
 [[claim]]
 id = "chorus-entity-resolution"
