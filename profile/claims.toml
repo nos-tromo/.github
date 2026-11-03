@@ -142,10 +142,10 @@ matches = 'retention_until=retention\.until\('
 [[claim]]
 id = "chorus-audit-log"
 repo = "chorus"
-quote = "an append-only audit log of every tool call"
-says = "triggers reject UPDATE and DELETE on audit rows"
-file = "chorus/audit/schema.sql"
-matches = '^CREATE TRIGGER IF NOT EXISTS audit_no_(update|delete)'
+quote = "a hash-chained audit trail of every tool call"
+says = "the @audited wrapper, which every registered tool runs through, writes each call to the audit stream"
+file = "chorus/tools/_audit.py"
+matches = '^\s+audit\.emit_refs\('
 
 [[claim]]
 id = "chorus-entity-resolution"
