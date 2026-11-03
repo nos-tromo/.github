@@ -387,6 +387,45 @@ def test_a_silent_open_chain_is_reported_once_as_unterminated() -> None:
     assert again.ok
 
 
+def _after(last: dict[str, object]) -> dict[str, object]:
+    seq = last["seq"]
+    assert isinstance(seq, int)
+    forged = dict(last, seq=seq + 1, prev_hash=last["hash"], action="query", operation="tool.example")
+    forged["hash"] = ae.event_hash(forged)
+    return forged
+
+
+def test_nothing_may_follow_a_shutdown() -> None:
+    events = _chain()
+    report = ae.verify_chain([*events, _after(events[-1])])
+    assert [problem.kind for problem in report.problems] == ["after_shutdown"]
+    head = next(iter(report.heads.values()))
+    assert head.ended is True
+    assert head.seq == events[-1]["seq"]
+
+
+def test_nothing_may_follow_a_shutdown_in_a_later_window() -> None:
+    events = _chain()
+    heads = ae.verify_chain(events).heads
+    report = ae.verify_chain([_after(events[-1])], checkpoints=heads)
+    assert [problem.kind for problem in report.problems] == ["after_shutdown"]
+    assert report.heads == heads
+
+
+def test_a_chain_reported_silent_may_resume() -> None:
+    buffer = io.StringIO()
+    emitter = _emitter(buffer)
+    emitter.emit("query", "x", ae.Actor(user="jane", via="edge"))
+    events = _lines(buffer)
+    last_ts = ae._parse_ts(str(events[-1]["ts"]))
+    assert last_ts is not None
+    first = ae.verify_chain(events, now=last_ts + ae.timedelta(minutes=10), silence=ae.timedelta(minutes=5))
+    assert [problem.kind for problem in first.problems] == ["unterminated"]
+    emitter.emit("query", "y", ae.Actor(user="jane", via="edge"))
+    resumed = _lines(buffer)[len(events) :]
+    assert ae.verify_chain(resumed, checkpoints=first.heads).ok
+
+
 def test_a_cleanly_closed_chain_is_never_unterminated() -> None:
     events = _chain()
     last_ts = ae._parse_ts(str(events[-1]["ts"]))
