@@ -432,3 +432,83 @@ def test_a_cleanly_closed_chain_is_never_unterminated() -> None:
     assert last_ts is not None
     far = last_ts + ae.timedelta(days=30)
     assert ae.verify_chain(events, now=far, silence=ae.timedelta(minutes=5)).ok
+
+
+def test_no_event_can_follow_the_shutdown() -> None:
+    """Shutdown and the end of the chain are one step: an emit racing it is refused, never written after it."""
+    outcome: list[str] = []
+    racers: list[threading.Thread] = []
+    holder: dict[str, object] = {}
+
+    def late_emit() -> None:
+        try:
+            holder["emitter"].emit("query", "late.query", ae.Actor(user="user.a", via="edge"))  # type: ignore[attr-defined]
+            outcome.append("written")
+        except RuntimeError:
+            outcome.append("refused")
+
+    class RacingStream(io.StringIO):
+        def write(self, text: str) -> int:
+            if '"operation":"shutdown"' in text:
+                racer = threading.Thread(target=late_emit)
+                racer.start()
+                racers.append(racer)
+                time.sleep(0.05)  # the racer now waits for the emitter's lock
+            return super().write(text)
+
+    buffer = RacingStream()
+    emitter = ae.AuditEmitter("example-app", "1.2.3", stream=buffer, heartbeat_interval_s=0)
+    holder["emitter"] = emitter
+    emitter.start()
+    emitter.close()
+    for racer in racers:
+        racer.join(timeout=5)
+    events = _lines(buffer)
+    assert outcome == ["refused"]
+    assert [event["operation"] for event in events] == ["start", "shutdown"]
+    assert ae.verify_chain(events).ok
+
+
+def test_concurrent_closes_write_one_shutdown() -> None:
+    """An explicit close racing the exit hook (or another close) ends the chain once."""
+    buffer = io.StringIO()
+    emitter = _emitter(buffer)
+    gate = threading.Barrier(8)
+
+    def close() -> None:
+        gate.wait(timeout=5)
+        emitter.close()  # type: ignore[attr-defined]
+
+    threads = [threading.Thread(target=close) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=5)
+    emitter.close()  # type: ignore[attr-defined]
+    events = _lines(buffer)
+    assert [event["operation"] for event in events].count("shutdown") == 1
+    assert ae.verify_chain(events).ok
+
+
+def test_a_failed_shutdown_still_ends_the_chain() -> None:
+    """If the shutdown cannot be written, nothing else is written after the attempt."""
+
+    class FailingStream(io.StringIO):
+        failing = False
+
+        def write(self, text: str) -> int:
+            if self.failing:
+                raise OSError("stream gone")
+            return super().write(text)
+
+    buffer = FailingStream()
+    emitter = ae.AuditEmitter("example-app", "1.2.3", stream=buffer, heartbeat_interval_s=0)
+    emitter.start()
+    buffer.failing = True
+    with pytest.raises(ae.AuditWriteError):
+        emitter.close()
+    buffer.failing = False
+    with pytest.raises(RuntimeError, match="closed"):
+        emitter.emit("query", "late.query", ae.Actor(user="user.a", via="edge"))
+    emitter.close()  # a later call does nothing
+    assert [event["operation"] for event in _lines(buffer)] == ["start"]
