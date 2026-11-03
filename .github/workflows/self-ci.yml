@@ -22,7 +22,7 @@ name: self-ci
 #                         fixtures.
 #   audit-lib-smoke     — validate_audit_lib.py vs its aligned/drifted/absent
 #                         fixtures, plus the pytest suites of the canonical
-#                         audit-event module and the validator.
+#                         audit modules and the validator.
 #   pins-smoke          — validate_action_pins.py vs its aligned/drifted/absent
 #                         fixtures, plus this repo's own workflows (the hub
 #                         enforces the SHA-pin policy on itself).
@@ -203,8 +203,8 @@ jobs:
         with:
           python-version: '3.11'
       - name: Aligned fixture should pass
-        # tests/fixtures/audit-aligned/examplepkg/utils/audit_event.py must
-        # mirror configs/audit/audit_event.py exactly - this job fails if it drifts.
+        # tests/fixtures/audit-aligned/examplepkg/utils/audit_{event,runtime}.py
+        # must mirror configs/audit/ exactly - this job fails if they drift.
         run: python3 scripts/validate_audit_lib.py --consumer-root tests/fixtures/audit-aligned
       - name: Drifted fixture should fail
         # One aligned and one drifted copy: every copy is checked, not the first.
@@ -220,10 +220,10 @@ jobs:
         with:
           # Keep in sync with the uv-version default in python-app-ci.yml.
           version: 0.12.11
-      - name: Pytest (module + validator, oldest supported Python)
-        # The module is vendored into apps on Python 3.11 and 3.12; run the
+      - name: Pytest (modules + validator, oldest supported Python)
+        # The modules are vendored into apps on Python 3.11 and 3.12; run the
         # floor. jsonschema checks emitted events against the published schema.
-        run: uv run --no-project --python 3.11 --with pytest --with jsonschema python -m pytest -q tests/test_audit_event.py tests/test_validate_audit_lib.py
+        run: uv run --no-project --python 3.11 --with pytest --with jsonschema python -m pytest -q tests/test_audit_event.py tests/test_audit_runtime.py tests/test_validate_audit_lib.py
 
   eslint-config-smoke:
     runs-on: ubuntu-latest
