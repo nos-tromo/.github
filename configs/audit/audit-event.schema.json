@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/nos-tromo/.github/configs/audit/audit-event.schema.json",
+  "title": "Federation audit event",
+  "description": "One line of the audit stream, as written by configs/audit/audit_event.py. hash is the SHA-256 of the event's canonical JSON (sorted keys, no whitespace, UTF-8, without the hash field); prev_hash is the hash of the previous event of the same instance, or 64 zeros for seq 0.",
+  "type": "object",
+  "required": [
+    "stream",
+    "v",
+    "event_id",
+    "ts",
+    "service",
+    "service_version",
+    "instance",
+    "seq",
+    "prev_hash",
+    "action",
+    "operation",
+    "outcome",
+    "actor",
+    "hash"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "stream": { "const": "audit" },
+    "v": { "const": 1 },
+    "event_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "ts": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$" },
+    "service": { "type": "string", "minLength": 1 },
+    "service_version": { "type": "string" },
+    "instance": { "type": "string", "pattern": "^[0-9a-f]{16}$" },
+    "seq": { "type": "integer", "minimum": 0 },
+    "prev_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "action": {
+      "enum": ["collect", "modify", "query", "disclose", "combine", "delete", "auth", "admin", "ai_call", "lifecycle"]
+    },
+    "operation": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "outcome": { "enum": ["ok", "denied", "error"] },
+    "actor": {
+      "type": "object",
+      "required": ["user", "via"],
+      "additionalProperties": false,
+      "properties": {
+        "user": { "type": ["string", "null"], "maxLength": 256 },
+        "via": { "enum": ["edge", "service", "cli", "system"] },
+        "on_behalf_of": { "type": "string", "maxLength": 256 }
+      }
+    },
+    "request_id": { "type": "string", "maxLength": 256 },
+    "parent_event_id": { "type": "string" },
+    "purpose": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "case_ref": { "type": "string", "maxLength": 256 },
+        "reason": { "type": "string", "maxLength": 256 }
+      }
+    },
+    "target": {
+      "type": "object",
+      "required": ["kind"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string", "maxLength": 256 },
+        "ids": { "type": "array", "maxItems": 200, "items": { "type": "string", "maxLength": 256 } },
+        "ids_truncated": { "const": true },
+        "count": { "type": "integer", "minimum": 0 },
+        "container": { "type": "string", "maxLength": 256 }
+      }
+    },
+    "criteria": { "type": "object" },
+    "recipient": { "type": "string", "maxLength": 256 },
+    "ai": {
+      "type": "object",
+      "required": ["model_alias"],
+      "additionalProperties": false,
+      "properties": {
+        "model_alias": { "type": "string", "maxLength": 256 },
+        "model_id": { "type": "string", "maxLength": 256 },
+        "revision": { "type": "string", "maxLength": 256 },
+        "prompt_version": { "type": "string", "maxLength": 256 },
+        "sources": { "type": "array", "maxItems": 200, "items": { "type": "string", "maxLength": 256 } },
+        "output_sha256": { "type": "string", "maxLength": 256 },
+        "input_tokens": { "type": "integer", "minimum": 0 },
+        "output_tokens": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

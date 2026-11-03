@@ -25,10 +25,10 @@ Four jobs for the Python consumers — the four apps (`chorus`, `docint`,
 `run-tests: false`:
 
 - **`lint`** — always runs. Checks this repo out at the ref the caller pinned,
-  then runs all seven validators against the consumer
+  then runs all eight validators against the consumer
   ([strict-python.md](strict-python.md), [vendored-files.md](vendored-files.md),
   [pinning.md](pinning.md)): `validate_strict_config`, `validate_make_common`,
-  `validate_bundle_lib`, `validate_eslint_config`, `validate_action_pins`,
+  `validate_bundle_lib`, `validate_audit_lib`, `validate_eslint_config`, `validate_action_pins`,
   `validate_infra_ui_pin`, and `validate_image_provenance` (installs cosign;
   needs network access and `github.token`, which it already has — see
   [pinning.md](pinning.md#signed-image-provenance)). Then `uv sync` and
@@ -162,7 +162,7 @@ Five jobs for the infra repos (`vllm-service`, `data-plane`, `obs-plane`,
   `compose-files` is empty.
 - **`make-common`** — the vendored-file, action-pin and image-provenance
   checks, run the same ref-locked way as `python-app-ci`'s lint job:
-  `validate_make_common`, `validate_bundle_lib`, `validate_action_pins`,
+  `validate_make_common`, `validate_bundle_lib`, `validate_audit_lib`, `validate_action_pins`,
   `validate_image_provenance`. Each skips a repo with nothing to check
   ([vendored-files.md](vendored-files.md),
   [pinning.md](pinning.md#signed-image-provenance)).
