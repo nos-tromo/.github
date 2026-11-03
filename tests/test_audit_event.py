@@ -131,6 +131,31 @@ def test_chains_of_several_instances_are_checked_separately() -> None:
     assert ae.verify_chain(_chain() + _chain()).ok
 
 
+def test_an_event_of_another_service_stays_out_of_the_chain() -> None:
+    events = _chain()
+    forged = dict(events[2], service="other")
+    forged["hash"] = ae.event_hash(forged)
+    events.insert(2, forged)
+    problems = ae.verify_chain(events).problems
+    assert [problem.kind for problem in problems] == ["service_mismatch"]
+    assert problems[0].service == events[0]["service"]
+    assert problems[0].seq == 2
+
+
+def test_a_resumed_chain_keeps_its_checkpoint_service() -> None:
+    events = _chain(6)
+    first, second = events[:4], events[4:]
+    heads = ae.verify_chain(first).heads
+    prev = next(iter(heads.values())).hash
+    for event in second:
+        event["service"] = "other"
+        event["prev_hash"] = prev
+        event["hash"] = prev = ae.event_hash(event)
+    report = ae.verify_chain(second, checkpoints=heads)
+    assert {problem.kind for problem in report.problems} == {"service_mismatch"}
+    assert report.heads == heads
+
+
 def test_a_malformed_line_is_a_schema_problem() -> None:
     events = _chain()
     del events[1]["actor"]
