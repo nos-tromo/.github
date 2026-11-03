@@ -12,6 +12,13 @@ chain visibly moving and a shutdown event marks a clean end, so a chain that
 stops without one points at lost or deleted lines. :func:`verify_chain` checks
 all of this and is what the audit store's verifier runs.
 
+Hashes make alteration detectable, not authorship: whatever can write audit
+lines can also write a whole, internally consistent fake chain. Two controls
+outside this module close that gap. The log collector binds every line to the
+container it came from, and the verifier rejects events whose ``service`` does
+not match that container. Daily anchors, signed and kept off the host, fix
+what existed when they were taken.
+
 The module never decides *what* is worth recording. Callers pass references
 (ids, counts), bounded search criteria and the caller's stated purpose, never
 document text, prompts or answers. Strings are length-capped as a backstop,
@@ -25,13 +32,14 @@ from __future__ import annotations
 import atexit
 import hashlib
 import json
+import re
 import secrets
 import sys
 import threading
 import time
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Final, TextIO
 
 SCHEMA_VERSION: Final = 2
@@ -55,6 +63,20 @@ MAX_IDS: Final = 200
 MAX_CRITERIA_KEYS: Final = 32
 TRUNCATION_MARK: Final = "…[truncated]"
 
+_HEX64: Final = re.compile(r"[0-9a-f]{64}")
+_STRING_KEYS: Final = (
+    "stream",
+    "event_id",
+    "ts",
+    "service",
+    "service_version",
+    "instance",
+    "prev_hash",
+    "hash",
+    "action",
+    "operation",
+    "outcome",
+)
 _REQUIRED_KEYS: Final = (
     "stream",
     "v",
@@ -504,7 +526,8 @@ class ChainProblem:
         instance: The chain (emitter instance) it belongs to.
         seq: The sequence number at which it was found, if any.
         kind: ``schema``, ``bad_hash``, ``broken_link``, ``seq_gap``,
-            ``seq_repeat`` or ``no_start``.
+            ``seq_repeat``, ``no_start`` or ``unterminated`` (an open chain
+            that went silent for longer than allowed).
         detail: A short human-readable description, never event content.
     """
 
@@ -558,47 +581,104 @@ class ChainReport:
         return not self.problems
 
 
-def _schema_problem(event: Mapping[str, Any]) -> str | None:
-    """Describe the first structural defect of an event, if any.
+def _parse_ts(value: str) -> datetime | None:
+    """Parse an event timestamp.
 
     Args:
-        event: A parsed audit line.
+        value: An ISO 8601 timestamp, ``Z`` or offset suffixed.
+
+    Returns:
+        The timezone-aware time, or ``None`` when the value does not parse
+        or carries no timezone.
+    """
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else None
+
+
+def _label(value: object) -> str:
+    """Return a value for use as a problem label, or ``?`` if it is not one.
+
+    Args:
+        value: A field taken from an untrusted event.
+
+    Returns:
+        The value when it is a short string, else ``?``; never the content
+        of anything else.
+    """
+    return value if isinstance(value, str) and len(value) <= 64 else "?"
+
+
+def _schema_problem(event: object) -> str | None:
+    """Describe the first structural defect of an event, if any.
+
+    Every type is checked before any comparison, so a hostile line can only
+    ever produce a problem, never an exception.
+
+    Args:
+        event: A parsed audit line, of any type.
 
     Returns:
         A description, or ``None`` when the event is well-formed.
     """
+    if not isinstance(event, Mapping):
+        return "not an object"
     for key in _REQUIRED_KEYS:
         if key not in event:
             return f"missing field {key!r}"
+    for key in _STRING_KEYS:
+        if not isinstance(event[key], str):
+            return f"{key} is not a string"
+    version = event["v"]
+    if not isinstance(version, int) or isinstance(version, bool) or version != SCHEMA_VERSION:
+        return "unsupported schema version"
     if event["stream"] != STREAM_MARKER:
         return "not an audit event"
     if event["action"] not in ACTIONS:
         return "unknown action"
     if event["outcome"] not in OUTCOMES:
         return "unknown outcome"
-    if not isinstance(event["seq"], int) or isinstance(event["seq"], bool) or event["seq"] < 0:
+    seq = event["seq"]
+    if not isinstance(seq, int) or isinstance(seq, bool) or seq < 0:
         return "seq is not a non-negative integer"
-    for key in ("instance", "prev_hash", "hash", "service"):
-        if not isinstance(event[key], str):
-            return f"{key} is not a string"
+    for key in ("prev_hash", "hash"):
+        if not _HEX64.fullmatch(event[key]):
+            return f"{key} is not a SHA-256 hex digest"
+    if _parse_ts(event["ts"]) is None:
+        return "ts is not an ISO 8601 timestamp with a time zone"
+    actor = event["actor"]
+    if not isinstance(actor, Mapping) or not isinstance(actor.get("via"), str) or actor.get("via") not in VIA:
+        return "actor is malformed"
     return None
 
 
 def verify_chain(
-    events: Iterable[Mapping[str, Any]],
+    events: Iterable[object],
     checkpoints: Mapping[str, ChainHead] | None = None,
+    *,
+    now: datetime | None = None,
+    silence: timedelta | None = None,
 ) -> ChainReport:
     """Check the integrity of audit events, chain by chain.
 
     Events may arrive interleaved across chains and out of order; they are
     grouped by ``instance`` and checked in ``seq`` order. Without a checkpoint,
     a chain must start at ``seq`` 0 with :data:`GENESIS_HASH`; with one, it
-    must continue right after the checkpoint.
+    must continue right after the checkpoint. A malformed line is reported as
+    a ``schema`` problem and never stops the run.
 
     Args:
         events: Parsed audit lines.
         checkpoints: The heads of a previous report, to verify a later
             window of the same chains.
+        now: The current time; with ``silence``, enables the check for
+            chains that stopped without a ``shutdown`` event.
+        silence: How long an open chain may go without an event before it is
+            reported as ``unterminated`` (and from then on treated as
+            closed, so it is reported once). Use a multiple of the
+            emitters' heartbeat interval.
 
     Returns:
         A report with every problem found and the new chain heads.
@@ -607,23 +687,29 @@ def verify_chain(
     by_instance: dict[str, list[Mapping[str, Any]]] = {}
     for event in events:
         report.events += 1
-        problem = _schema_problem(event)
+        try:
+            problem = _schema_problem(event)
+        except (TypeError, ValueError, KeyError):
+            problem = "malformed event"
         if problem is not None:
+            source: Mapping[str, Any] = event if isinstance(event, Mapping) else {}
+            raw_seq = source.get("seq")
             report.problems.append(
                 ChainProblem(
-                    service=str(event.get("service", "?")),
-                    instance=str(event.get("instance", "?")),
-                    seq=event.get("seq") if isinstance(event.get("seq"), int) else None,
+                    service=_label(source.get("service")),
+                    instance=_label(source.get("instance")),
+                    seq=raw_seq if isinstance(raw_seq, int) and not isinstance(raw_seq, bool) else None,
                     kind="schema",
                     detail=problem,
                 )
             )
             continue
-        by_instance.setdefault(event["instance"], []).append(event)
+        if isinstance(event, Mapping):
+            by_instance.setdefault(str(event["instance"]), []).append(event)
 
     known = dict(checkpoints or {})
     for instance, chain in by_instance.items():
-        chain.sort(key=lambda item: item["seq"])
+        chain.sort(key=lambda item: int(item["seq"]))
         service = str(chain[0]["service"])
         head = known.get(instance)
         expected_seq = 0 if head is None else head.seq + 1
@@ -631,8 +717,8 @@ def verify_chain(
         closed = False if head is None else head.closed
         last: Mapping[str, Any] | None = None
         for event in chain:
-            seq = event["seq"]
-            if last is not None and seq == last["seq"]:
+            seq = int(event["seq"])
+            if last is not None and seq == int(last["seq"]):
                 report.problems.append(ChainProblem(service, instance, seq, "seq_repeat", "sequence number repeats"))
                 continue
             if seq != expected_seq:
@@ -643,7 +729,11 @@ def verify_chain(
                 report.problems.append(
                     ChainProblem(service, instance, seq, "broken_link", "prev_hash does not match the previous event")
                 )
-            if event_hash(event) != event["hash"]:
+            try:
+                intact = event_hash(event) == event["hash"]
+            except (TypeError, ValueError):
+                intact = False
+            if not intact:
                 report.problems.append(ChainProblem(service, instance, seq, "bad_hash", "event hash does not match"))
             expected_seq = seq + 1
             expected_prev = str(event["hash"])
@@ -660,4 +750,18 @@ def verify_chain(
             )
     for instance, head in known.items():
         report.heads.setdefault(instance, head)
+
+    if now is not None and silence is not None:
+        for instance, head in list(report.heads.items()):
+            last_seen = _parse_ts(head.ts)
+            if head.closed or last_seen is None or now - last_seen <= silence:
+                continue
+            report.problems.append(
+                ChainProblem(
+                    head.service, instance, head.seq, "unterminated", "chain went silent without a shutdown event"
+                )
+            )
+            report.heads[instance] = ChainHead(
+                service=head.service, instance=instance, seq=head.seq, hash=head.hash, ts=head.ts, closed=True
+            )
     return report

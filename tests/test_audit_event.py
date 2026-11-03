@@ -298,3 +298,73 @@ def test_emitted_events_match_the_published_schema() -> None:
     validator = jsonschema.Draft202012Validator(schema)
     for event in _lines(buffer):
         validator.validate(event)
+
+
+@pytest.mark.parametrize(
+    "hostile",
+    [
+        "a plain string",
+        ["a", "list"],
+        42,
+        None,
+        {"stream": "audit"},
+    ],
+)
+def test_non_events_are_schema_problems_not_crashes(hostile: object) -> None:
+    events: list[object] = [*_chain(), hostile]
+    report = ae.verify_chain(events)
+    assert [problem.kind for problem in report.problems] == ["schema"]
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("action", ["query"]),
+        ("outcome", {"ok": True}),
+        ("stream", ["audit"]),
+        ("seq", "1"),
+        ("seq", True),
+        ("v", 2),
+        ("hash", "not-hex"),
+        ("prev_hash", 7),
+        ("ts", "yesterday"),
+        ("ts", "2026-01-01T00:00:00"),
+        ("actor", ["jane"]),
+        ("actor", {"user": "jane", "via": ["edge"]}),
+        ("service", {"name": "x"}),
+    ],
+)
+def test_wrongly_typed_fields_are_schema_problems_not_crashes(key: str, value: object) -> None:
+    events = _chain()
+    events[2][key] = value
+    problems = ae.verify_chain(events).problems
+    assert problems[0].kind == "schema"
+    assert all(len(problem.service) <= 64 and len(problem.instance) <= 64 for problem in problems)
+
+
+def test_a_silent_open_chain_is_reported_once_as_unterminated() -> None:
+    buffer = io.StringIO()
+    emitter = _emitter(buffer)
+    emitter.emit("query", "x", ae.Actor(user="jane", via="edge"))
+    events = _lines(buffer)  # no shutdown: the process "crashed"
+    last_ts = ae._parse_ts(str(events[-1]["ts"]))
+    assert last_ts is not None
+    soon = last_ts + ae.timedelta(seconds=60)
+    later = last_ts + ae.timedelta(minutes=10)
+    silence = ae.timedelta(minutes=5)
+
+    assert ae.verify_chain(events, now=soon, silence=silence).ok
+    first = ae.verify_chain(events, now=later, silence=silence)
+    assert [problem.kind for problem in first.problems] == ["unterminated"]
+    head = next(iter(first.heads.values()))
+    assert head.closed is True
+    again = ae.verify_chain([], checkpoints=first.heads, now=later, silence=silence)
+    assert again.ok
+
+
+def test_a_cleanly_closed_chain_is_never_unterminated() -> None:
+    events = _chain()
+    last_ts = ae._parse_ts(str(events[-1]["ts"]))
+    assert last_ts is not None
+    far = last_ts + ae.timedelta(days=30)
+    assert ae.verify_chain(events, now=far, silence=ae.timedelta(minutes=5)).ok
