@@ -170,6 +170,10 @@ jobs:
       - name: Validate scripts/bundle-lib.sh alignment
         # Same skip-when-absent semantics as make/common.mk.
         run: python3 .nos-tromo-github-ref/scripts/validate_bundle_lib.py
+      - name: Validate vendored audit_event.py alignment
+        # Every audit_event.py in the repo must match configs/audit/; skips when
+        # none is vendored (the repo emits no audit events).
+        run: python3 .nos-tromo-github-ref/scripts/validate_audit_lib.py
       - name: Validate frontend eslint.config.js alignment
         # Same skip-when-absent semantics; checks <frontend-dir>/eslint.config.js.
         env:

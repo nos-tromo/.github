@@ -25,15 +25,15 @@ check (`docs/pinning.md`), the strict-Python and vendored-file contracts, versio
 doubled `.github/.github/` is correct (the repo is *named* `.github`), and the ref is
 a full commit SHA, never a tag, per this repo's own pin policy (`docs/pinning.md`).
 All five:
-- `python-app-ci.yml` — lint (all seven validators + pre-commit) → pytest matrix → optional
+- `python-app-ci.yml` — lint (all eight validators + pre-commit) → pytest matrix → optional
   frontend and docker jobs; the docker job also scans what compose built
   (`scripts/scan_built_images.py`, Grype, gated on *fixable* findings at
   `docker-scan-fail-on`, default `critical`). `run-tests: false` gives a lint-only run
   (vllm-service), and skips the docker job with it (`docker` declares `needs: [lint, test]`;
   lint hands it the pinned hub ref as a job output).
 - `infra-validation.yml` — yamllint/shellcheck/hadolint/`docker compose config` for infra
-  repos, plus a `make-common` job running the `common.mk` + `bundle-lib.sh` + action-pin
-  checks and the image-provenance check.
+  repos, plus a `make-common` job running the `common.mk` + `bundle-lib.sh` + `audit_event.py`
+  + action-pin checks and the image-provenance check.
 - `node-lib-ci.yml` — pnpm lint/typecheck/test/build for `@infra/ui`, with optional
   `check-dist`, plus a dedicated `action-pins` job.
 - `claude.yml` — **manual `@claude` only, no automatic per-PR review** (deliberate: exposes no `prompt` input, wires no `pull_request` trigger).
@@ -48,9 +48,15 @@ validator in `scripts/` that fails CI on drift. Two comparison flavors:
 - **Semantic merge** (`python-strict`): `configs/python-strict/{ruff.toml,pyrefly.toml,precommit-versions.yaml}`
   is merged into each consumer's `pyproject.toml` / `.pre-commit-config.yaml` and compared
   key-by-key. `validate_strict_config.py`. Only `[tool.ruff] target-version` may be overridden.
-- **Verbatim vendor** (`make/common.mk`, `bundle-lib.sh`, `eslint.config.js`): copied
-  byte-for-byte into consumers and compared with an exact file diff. **Never hand-edit the
-  vendored copy — change the canonical file and re-vendor.**
+- **Verbatim vendor** (`make/common.mk`, `bundle-lib.sh`, `eslint.config.js`, `audit_event.py`):
+  copied byte-for-byte into consumers and compared with an exact file diff. **Never hand-edit the
+  vendored copy — change the canonical file and re-vendor.** `validate_audit_lib.py` (the ninth
+  validator, consumer-run in both `python-app-ci` and `infra-validation`) differs in one way: the
+  module lives wherever a repo's package layout puts it, so it checks *every* `audit_event.py` it
+  finds (skipping virtualenvs, `node_modules`, caches and the hub checkout) instead of one fixed
+  path. Emitters and the audit store's verifier must hash byte-identically, which is why it is
+  vendored rather than reimplemented; it must stay stdlib-only and clean under the strict
+  ruff + pyrefly regime, because every app lints its copy.
 
 `validate_action_pins.py` is a fifth validator that fits neither flavor: it has no canonical
 file at all. It is a **policy check on the consumer's own workflows** — every `uses:` ref must
@@ -67,7 +73,7 @@ lockfile would keep resolving the tag even after the manifest was fixed. Skips r
 frontend or without the dep. Runs in `python-app-ci`'s lint job beside the action-pin check.
 
 `validate_profile_claims.py` is a seventh validator and the only **hub-only** one — no consumer
-runs it, so the "all seven validators" wording in the `python-app-ci` docs stays correct. It checks
+runs it, so the "all eight validators" wording in the `python-app-ci` docs stays correct. It checks
 `profile/README.md`, the public landing page, against `profile/claims.toml`, which anchors each
 claim on the page to a line of *config or source* in the member repo it describes. Anchoring to
 config is load-bearing: a member's own prose routinely mentions a capability as planned or
@@ -111,7 +117,8 @@ These are the non-obvious rules that keep the system coherent:
 - **Fixtures mirror canonical.** When you change anything under `configs/python-strict/`,
   update `tests/fixtures/aligned/` to match — it's the same drift signal real consumers get,
   applied to this repo's own smoke test. Likewise `tests/fixtures/{mk,bundle,eslint}-aligned/`
-  must mirror their canonical source.
+  must mirror their canonical source, and `tests/fixtures/audit-aligned/` must mirror
+  `configs/audit/audit_event.py`.
 - **Include-driven required-ness.** A vendored file is enforced only where the consumer opts
   in: `make/common.mk` iff the `Makefile` has `include make/common.mk`; `bundle-lib.sh` iff
   `scripts/bundle_images.sh` sources it; `eslint.config.js` only when present. vendored-and-opted-in
@@ -192,7 +199,7 @@ validator, add its smoke job there too. Full job map: `docs/maintaining.md`.
 
 - `.github/workflows/` — reusable workflows (above) + `self-ci.yml` (this repo's own CI).
 - `actions/release-tag/` — composite action; `extract_version.py` + its pytest suite.
-- `configs/` — canonical shared files: `python-strict/`, `make-common/`, `bundle/`, `frontend-eslint/`;
+- `configs/` — canonical shared files: `python-strict/`, `make-common/`, `bundle/`, `frontend-eslint/`, `audit/`;
   plus `image-provenance/` (signer policy + pinned keys), read in place and never vendored.
 - `scripts/` — the stdlib-only drift validators, the action-pin / `@infra/ui` / image-provenance
   policy checks, and `scan_built_images.py`.

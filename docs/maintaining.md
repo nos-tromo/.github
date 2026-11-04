@@ -18,6 +18,7 @@ runs on every PR and push to `main`, in eleven jobs that do five things:
    | `validator-smoke` | `validate_strict_config.py` | `half-migrated` (mypy left behind) must fail; `aligned` also exercises the `target-version` allowed-override and the `[tool.pyrefly]` mirror path |
    | `make-common-smoke` | `validate_make_common.py` | `mk-absent` skips, `mk-required-absent` fails; plus `tests/build_persist_smoke.sh` |
    | `bundle-lib-smoke` | `validate_bundle_lib.py` | `bundle-absent` skips, `bundle-required-absent` fails; plus `tests/bundle_version_smoke.sh` and `tests/bundle_checkout_smoke.sh` |
+   | `audit-lib-smoke` | `validate_audit_lib.py` | `audit-absent` skips, `audit-drifted` fails with one aligned and one drifted copy; plus `tests/test_audit_event.py` and `tests/test_validate_audit_lib.py` on Python 3.11 |
    | `eslint-config-smoke` | `validate_eslint_config.py` | `eslint-absent` skips |
    | `pins-smoke` | `validate_action_pins.py` | `pins-absent` skips; **and this repo itself**, so the hub is held to the policy it ships |
    | `uipin-smoke` | `validate_infra_ui_pin.py` | `uipin-absent` skips |
