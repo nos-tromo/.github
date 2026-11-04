@@ -32,7 +32,7 @@ All five:
   (vllm-service), and skips the docker job with it (`docker` declares `needs: [lint, test]`;
   lint hands it the pinned hub ref as a job output).
 - `infra-validation.yml` — yamllint/shellcheck/hadolint/`docker compose config` for infra
-  repos, plus a `make-common` job running the `common.mk` + `bundle-lib.sh` + `audit_event.py`
+  repos, plus a `make-common` job running the `common.mk` + `bundle-lib.sh` + audit-library
   + action-pin checks and the image-provenance check.
 - `node-lib-ci.yml` — pnpm lint/typecheck/test/build for `@infra/ui`, with optional
   `check-dist`, plus a dedicated `action-pins` job.
@@ -48,15 +48,18 @@ validator in `scripts/` that fails CI on drift. Two comparison flavors:
 - **Semantic merge** (`python-strict`): `configs/python-strict/{ruff.toml,pyrefly.toml,precommit-versions.yaml}`
   is merged into each consumer's `pyproject.toml` / `.pre-commit-config.yaml` and compared
   key-by-key. `validate_strict_config.py`. Only `[tool.ruff] target-version` may be overridden.
-- **Verbatim vendor** (`make/common.mk`, `bundle-lib.sh`, `eslint.config.js`, `audit_event.py`):
+- **Verbatim vendor** (`make/common.mk`, `bundle-lib.sh`, `eslint.config.js`, `audit_event.py`,
+  `audit_runtime.py`):
   copied byte-for-byte into consumers and compared with an exact file diff. **Never hand-edit the
   vendored copy — change the canonical file and re-vendor.** `validate_audit_lib.py` (the ninth
   validator, consumer-run in both `python-app-ci` and `infra-validation`) differs in one way: the
-  module lives wherever a repo's package layout puts it, so it checks *every* `audit_event.py` it
-  finds (skipping virtualenvs, `node_modules`, caches and the hub checkout) instead of one fixed
-  path. Emitters and the audit store's verifier must hash byte-identically, which is why it is
-  vendored rather than reimplemented; it must stay stdlib-only and clean under the strict
-  ruff + pyrefly regime, because every app lints its copy.
+  modules live wherever a repo's package layout puts them, so it checks *every* `audit_event.py`
+  and `audit_runtime.py` it finds against the canonical file of the same name (skipping
+  virtualenvs, `node_modules`, caches and the hub checkout) instead of one fixed path. Emitters
+  and the audit store's verifier must hash byte-identically, and every emitting app must write
+  its lines and read the purpose header the same way — which is why both are vendored rather
+  than reimplemented; they must stay stdlib-only and clean under the strict ruff + pyrefly
+  regime, because every app lints its copies.
 
 `validate_action_pins.py` is a fifth validator that fits neither flavor: it has no canonical
 file at all. It is a **policy check on the consumer's own workflows** — every `uses:` ref must
@@ -118,7 +121,7 @@ These are the non-obvious rules that keep the system coherent:
   update `tests/fixtures/aligned/` to match — it's the same drift signal real consumers get,
   applied to this repo's own smoke test. Likewise `tests/fixtures/{mk,bundle,eslint}-aligned/`
   must mirror their canonical source, and `tests/fixtures/audit-aligned/` must mirror
-  `configs/audit/audit_event.py`.
+  `configs/audit/audit_event.py` and `configs/audit/audit_runtime.py`.
 - **Include-driven required-ness.** A vendored file is enforced only where the consumer opts
   in: `make/common.mk` iff the `Makefile` has `include make/common.mk`; `bundle-lib.sh` iff
   `scripts/bundle_images.sh` sources it; `eslint.config.js` only when present. vendored-and-opted-in

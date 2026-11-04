@@ -67,7 +67,7 @@ Three network seams keep the tiers apart — `inference-net` (apps ↔ inference
 
 | Repo | What it does |
 |---|---|
-| **[chorus](https://github.com/nos-tromo/chorus)** | GraphRAG for social-network analysis on Neo4j — nine schema'd graph tools over version-controlled Cypher, a natural-language tool-calling agent, alias → entity resolution, interactive force-graph exploration, per-post retention dates, and an append-only audit log of every tool call. |
+| **[chorus](https://github.com/nos-tromo/chorus)** | GraphRAG for social-network analysis on Neo4j — nine schema'd graph tools over version-controlled Cypher, a natural-language tool-calling agent, alias → entity resolution, interactive force-graph exploration, per-post retention dates, and a hash-chained audit trail of every tool call. |
 | **[docint](https://github.com/nos-tromo/docint)** | Multimodal document-intelligence RAG — FastAPI + React SPA over Qdrant: hybrid retrieval with graph-assisted query expansion, entity resolution, an agent orchestrator, a Report Builder exporting case files (Markdown, HTML, JSON, CSV, PDF), and server-streamed CSV and ZIP extracts. |
 | **[Nextext](https://github.com/nos-tromo/Nextext)** | Transcribe, translate, diarize & analyze speech from audio/video — CLI + FastAPI job API + React SPA, with Whisper, LLM, GLiNER, diarization and VAD each on its own external endpoint; no local GPU, no bundled weights. |
 | **[translator](https://github.com/nos-tromo/translator)** | Self-hosted translation service — FastAPI API + React SPA over any OpenAI-compatible endpoint, model-agnostic by env, ~50 languages with LLM-based source-language detection, no bundled weights. |
