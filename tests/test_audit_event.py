@@ -77,10 +77,39 @@ def test_every_line_is_canonical_json_with_the_audit_marker() -> None:
     emitter.emit("query", "search", ae.Actor(user="jäne", via="edge"), criteria={"q": "Grüße", "b": 1, "a": 2})
     for line in buffer.getvalue().splitlines():
         event = json.loads(line)
-        assert line == ae.canonical_json(event)
+        assert line == ae.event_line(event) == ae.canonical_json(event)
         assert event["stream"] == "audit"
         assert event["hash"] == ae.event_hash(event)
     assert "Grüße" in buffer.getvalue()
+
+
+def test_a_line_breaker_in_a_string_is_escaped_so_one_event_stays_one_line() -> None:
+    breakers = "".join(chr(code) for code in (0x2028, 0x85, 0x2029, 0x9F))
+    query = f"a{breakers}b"
+    buffer = io.StringIO()
+    emitter = _emitter(buffer)
+    emitter.emit("query", "search", ae.Actor(user="jane.doe", via="edge"), criteria={"q": query})
+    emitter.close()
+    text = buffer.getvalue()
+    assert not any(char in text for char in breakers)
+    assert len(text.splitlines()) == len(text.split("\n")) - 1
+    events = _lines(buffer)
+    [searched] = [event for event in events if event["operation"] == "search"]
+    assert searched["criteria"] == {"q": query}
+    for line, event in zip(text.splitlines(), events, strict=True):
+        assert line == ae.event_line(event)
+        assert event["hash"] == ae.event_hash(event)
+    assert ae.verify_chain(events).ok
+
+
+def test_a_line_written_before_the_escaping_still_verifies() -> None:
+    buffer = io.StringIO()
+    emitter = _emitter(buffer)
+    emitter.emit("query", "search", ae.Actor(user="jane.doe", via="edge"), criteria={"q": f"a{chr(0x2028)}b"})
+    emitter.close()
+    unescaped = [ae.canonical_json(event) for event in _lines(buffer)]
+    assert any(chr(0x2028) in line for line in unescaped)
+    assert ae.verify_chain([json.loads(line) for line in unescaped]).ok
 
 
 def test_an_altered_field_breaks_the_hash() -> None:
