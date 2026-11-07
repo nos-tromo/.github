@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Validate that the public profile page's factual claims still hold.
 
-``profile/README.md`` describes twelve sibling repositories in prose. Nothing
+``profile/README.md`` describes eleven sibling repositories in prose. Nothing
 else in this repo can tell when one of those descriptions stops being true,
 because the evidence lives in another repository entirely. This script closes
 that gap: every checkable claim on the page is anchored, in

@@ -40,7 +40,7 @@ this. It scans the consumer's `.github/workflows/*.yml|*.yaml` plus any
 locally the same way as the other validators:
 
 ```bash
-python3 scripts/validate_action_pins.py --consumer-root ../chorus
+python3 scripts/validate_action_pins.py --consumer-root ../docint
 ```
 
 To resolve a tag to its SHA:
@@ -77,7 +77,7 @@ is skipped. It runs in the `python-app-ci` lint job beside the action-pin
 check, and locally the same way as the other validators:
 
 ```bash
-python3 scripts/validate_infra_ui_pin.py --consumer-root ../chorus
+python3 scripts/validate_infra_ui_pin.py --consumer-root ../docint
 ```
 
 ## Signed image provenance

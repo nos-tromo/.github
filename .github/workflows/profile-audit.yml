@@ -2,7 +2,7 @@ name: profile-audit
 
 # Cross-repo half of the profile-claims check.
 #
-# profile/README.md describes twelve sibling repositories, so most of its
+# profile/README.md describes eleven sibling repositories, so most of its
 # claims can only be checked against those repositories' own configuration.
 # This workflow clones them and runs the full audit.
 #

@@ -39,7 +39,7 @@ A few intentional choices worth knowing:
 
 - `ignore-missing-imports = ["*"]` in `pyrefly.toml` is load-bearing — without
   it, strict mode would fail on every untyped third-party import
-  (Streamlit, the Neo4j driver, llama-index, etc.). Strict applies to
+  (Streamlit, llama-index, etc.). Strict applies to
   first-party code; transitive untyped seams are out of scope.
 - `ANN401` (forbid `Any`) is ignored in `ruff.toml` for the same reason:
   bridges to untyped libraries force `Any` constantly, and strict pyrefly

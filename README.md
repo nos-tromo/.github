@@ -12,7 +12,7 @@ reference behind it lives in [docs/](docs/README.md).
 
 | Path | What it provides |
 |---|---|
-| [`.github/workflows/python-app-ci.yml`](.github/workflows/python-app-ci.yml) | CI for the four Python apps ([chorus](https://github.com/nos-tromo/chorus), [docint](https://github.com/nos-tromo/docint), [Nextext](https://github.com/nos-tromo/Nextext), [translator](https://github.com/nos-tromo/translator)) — and, lint-only via `run-tests: false`, [vllm-service](https://github.com/nos-tromo/vllm-service): all eight drift/policy validators (including the signed image-provenance check), pre-commit (ruff + pyrefly via the consumer's own `.pre-commit-config.yaml`), pytest across a Python-version matrix, and optional `docker compose build` (with a Grype scan of the built images) and React/pnpm frontend jobs. |
+| [`.github/workflows/python-app-ci.yml`](.github/workflows/python-app-ci.yml) | CI for the three Python apps ([docint](https://github.com/nos-tromo/docint), [Nextext](https://github.com/nos-tromo/Nextext), [translator](https://github.com/nos-tromo/translator)) — and, lint-only via `run-tests: false`, [vllm-service](https://github.com/nos-tromo/vllm-service): all eight drift/policy validators (including the signed image-provenance check), pre-commit (ruff + pyrefly via the consumer's own `.pre-commit-config.yaml`), pytest across a Python-version matrix, and optional `docker compose build` (with a Grype scan of the built images) and React/pnpm frontend jobs. |
 | [`.github/workflows/infra-validation.yml`](.github/workflows/infra-validation.yml) | CI for the infra repos ([vllm-service](https://github.com/nos-tromo/vllm-service), [data-plane](https://github.com/nos-tromo/data-plane), [obs-plane](https://github.com/nos-tromo/obs-plane), [edge-plane](https://github.com/nos-tromo/edge-plane), [open-webui-service](https://github.com/nos-tromo/open-webui-service), [deploy](https://github.com/nos-tromo/deploy)): yamllint, shellcheck, hadolint, `docker compose config` validation, the `make/common.mk` + `bundle-lib.sh` + action-pin drift checks, and the signed image-provenance check. |
 | [`.github/workflows/node-lib-ci.yml`](.github/workflows/node-lib-ci.yml) | CI for the shared Node/TypeScript library ([infra-ui](https://github.com/nos-tromo/infra-ui), the `@infra/ui` design system): pnpm lint, typecheck, test, build, an optional check that a committed prebuilt `dist/` is in sync with source, and the action-pin check. |
 | [`.github/workflows/release-tag.yml`](.github/workflows/release-tag.yml) | Mints the annotated `vX.Y.Z` tag on merge to `main` from a repo's declared version. Idempotent, with an anti-downgrade guard. |
@@ -32,7 +32,7 @@ five: [docs/workflows.md](docs/workflows.md).
 ### Python apps
 
 ```yaml
-# chorus/.github/workflows/ci.yml
+# docint/.github/workflows/ci.yml
 name: ci
 on:
   pull_request:
@@ -167,7 +167,7 @@ image scan also run live against real registries there. To run a validator
 against a real consumer (Python 3.11+, uses `tomllib`):
 
 ```bash
-python3 scripts/validate_strict_config.py --consumer-root ../chorus
+python3 scripts/validate_strict_config.py --consumer-root ../docint
 ```
 
 [docs/maintaining.md](docs/maintaining.md) has the full self-CI contract;

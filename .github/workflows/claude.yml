@@ -1,7 +1,7 @@
 name: claude
 
 # Reusable workflow for MANUAL @claude invocation across the nos-tromo
-# federation (chorus, docint, Nextext, translator, vllm-service, data-plane).
+# federation (docint, Nextext, translator, vllm-service, data-plane).
 #
 # Interactive / "tag" mode ONLY — Claude acts solely when a human writes the
 # trigger phrase ("@claude" by default) in an issue, a PR comment, a PR review,
