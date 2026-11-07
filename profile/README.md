@@ -2,7 +2,7 @@
 
 I build a small **federation** of analysis apps that share one self-hosted, OpenAI-compatible inference stack. Everything is designed to run on-prem or fully **air-gapped** — no data leaves the box, all model weights sit behind a single routed endpoint, the apps stay stateless so their state lives in exactly one place, and users reach every app through a single authenticated gateway.
 
-**Built with:** Python · FastAPI · TypeScript · React · Tailwind · Docker Compose · vLLM · LiteLLM · Neo4j · Qdrant · Prometheus · Grafana · Loki · Caddy · Authelia · `uv` · strict `ruff` + `pyrefly`
+**Built with:** Python · FastAPI · TypeScript · React · Tailwind · Docker Compose · vLLM · LiteLLM · Qdrant · Prometheus · Grafana · Loki · Caddy · Authelia · `uv` · strict `ruff` + `pyrefly`
 
 ### How it fits together
 
@@ -15,7 +15,6 @@ flowchart TB
   end
 
   subgraph Apps["Applications"]
-    chorus["chorus<br/>social-network GraphRAG"]
     docint["docint<br/>document RAG"]
     nextext["Nextext<br/>speech → text"]
     translator["translator<br/>translation"]
@@ -24,26 +23,23 @@ flowchart TB
 
   subgraph Platform["Self-hosted platform"]
     vllm["vllm-service<br/>routed inference · LiteLLM"]
-    data["data-plane<br/>Neo4j + Qdrant"]
+    data["data-plane<br/>Qdrant"]
     obs["obs-plane<br/>Prometheus · Grafana · Loki"]
   end
 
   users -->|HTTPS :443 · :8443| edge
 
-  edge -->|edge-net| chorus
   edge -->|edge-net| docint
   edge -->|edge-net| nextext
   edge -->|edge-net| translator
   edge -->|edge-net · :8443| webui
   edge -->|edge-net · Grafana| obs
 
-  chorus -->|inference-net| vllm
   docint -->|inference-net| vllm
   nextext -->|inference-net| vllm
   translator -->|inference-net| vllm
   webui -->|inference-net| vllm
 
-  chorus -->|data-net| data
   docint -->|data-net| data
 
   obs -.->|scrapes| vllm
@@ -58,7 +54,7 @@ Three network seams keep the tiers apart — `inference-net` (apps ↔ inference
 | Repo | What it does |
 |---|---|
 | **[vllm-service](https://github.com/nos-tromo/vllm-service)** | One LiteLLM-fronted, OpenAI-compatible endpoint multiplexing chat, dense & sparse embeddings, rerank, NER (GLiNER on Ray Serve), CLIP, Whisper transcription & translation, diarization & VAD, topic-model fitting — plus eight single-service CPU-only shapes and offline bundles for air-gapped hosts. |
-| **[data-plane](https://github.com/nos-tromo/data-plane)** | Stateful backbone: owns the Neo4j (graph + native vectors) and Qdrant (document vectors, CPU or CUDA) volumes so the apps stay disposable — with dump/snapshot backup and restore runbooks. |
+| **[data-plane](https://github.com/nos-tromo/data-plane)** | Stateful backbone: owns the Qdrant (document vectors, CPU or CUDA) volumes so the apps stay disposable — with snapshot backup and restore runbooks. |
 | **[obs-plane](https://github.com/nos-tromo/obs-plane)** | Airgap-first observability plane — Prometheus, Grafana, Loki and Alloy plus host and container exporters and black-box health probes, all pulled digest-pinned images; dashboards provisioned from files, alerts as committed Prometheus and Loki rules, no runtime fetching or phone-home. |
 | **[edge-plane](https://github.com/nos-tromo/edge-plane)** | The federation's single entry point — Caddy (TLS, path routing) + Authelia (forward-auth SSO, file-backed users), the one member that publishes ports at all. Strips client-supplied identity headers, authenticates every request, injects the trusted `X-Auth-User` / `X-Auth-Email` headers the apps consume, and fronts a static portal of service tiles. |
 | **[open-webui-service](https://github.com/nos-tromo/open-webui-service)** | Open WebUI chat frontend on a digest-pinned upstream image with every bundled provider disabled — chat, RAG embeddings and speech-to-text all leave through the shared LiteLLM endpoint — served on the gateway's dedicated site with trusted-header SSO. |
@@ -67,7 +63,6 @@ Three network seams keep the tiers apart — `inference-net` (apps ↔ inference
 
 | Repo | What it does |
 |---|---|
-| **[chorus](https://github.com/nos-tromo/chorus)** | GraphRAG for social-network analysis on Neo4j — nine schema'd graph tools over version-controlled Cypher, a natural-language tool-calling agent, alias → entity resolution, interactive force-graph exploration, per-post retention dates, and a hash-chained audit trail of every tool call. |
 | **[docint](https://github.com/nos-tromo/docint)** | Multimodal document-intelligence RAG — FastAPI + React SPA over Qdrant: hybrid retrieval with graph-assisted query expansion, entity resolution, an agent orchestrator, a Report Builder exporting case files (Markdown, HTML, JSON, CSV, PDF), and server-streamed CSV and ZIP extracts. |
 | **[Nextext](https://github.com/nos-tromo/Nextext)** | Transcribe, translate, diarize & analyze speech from audio/video — CLI + FastAPI job API + React SPA, with Whisper, LLM, GLiNER, diarization and VAD each on its own external endpoint; no local GPU, no bundled weights. |
 | **[translator](https://github.com/nos-tromo/translator)** | Self-hosted translation service — FastAPI API + React SPA over any OpenAI-compatible endpoint, model-agnostic by env, ~50 languages with LLM-based source-language detection, no bundled weights. |
