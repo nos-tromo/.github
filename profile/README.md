@@ -1,4 +1,4 @@
-> **nos-tromo** — self-hosted NLP & OSINT tooling: transcription, translation, document and social-network intelligence, all running on hardware you control.
+> **nos-tromo** — self-hosted NLP & OSINT tooling: transcription, translation and document intelligence, all running on hardware you control.
 
 I build a small **federation** of analysis apps that share one self-hosted, OpenAI-compatible inference stack. Everything is designed to run on-prem or fully **air-gapped** — no data leaves the box, all model weights sit behind a single routed endpoint, the apps stay stateless so their state lives in exactly one place, and users reach every app through a single authenticated gateway.
 
