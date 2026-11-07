@@ -33,7 +33,7 @@ not current reference.
 
 ## Conventions used in these docs
 
-- Paths are relative to the repo root unless shown otherwise; `../chorus` style
+- Paths are relative to the repo root unless shown otherwise; `../docint` style
   paths assume consumers are checked out beside this repo.
 - `<commit-sha>` in a snippet is a placeholder for a full 40-character SHA — see
   [pinning.md](pinning.md#action-refs) for resolving one.

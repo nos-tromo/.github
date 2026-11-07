@@ -294,7 +294,7 @@ jobs:
         run: python3 scripts/validate_infra_ui_pin.py --consumer-root tests/fixtures/uipin-absent
 
   profile-smoke:
-    # The profile page describes twelve sibling repositories, so most of its
+    # The profile page describes eleven sibling repositories, so most of its
     # claims can only be checked against checkouts this job does not have.
     # What IS checkable here is everything internal to the hub: the fixtures,
     # the page's own structure, and the claims about this repository. The

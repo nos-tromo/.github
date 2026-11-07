@@ -1,6 +1,6 @@
 name: python-app-ci
 
-# Reusable workflow for nos-tromo Python apps (chorus, docint, Nextext, translator).
+# Reusable workflow for nos-tromo Python apps (docint, Nextext, translator).
 # Runs pre-commit (ruff-check + ruff-format + pyrefly via the repo's .pre-commit-config.yaml),
 # pytest, and optionally docker builds (with a Grype scan of the built images) + a
 # React/pnpm frontend. The lint job also verifies the signed provenance of every

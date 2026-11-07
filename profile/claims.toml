@@ -34,12 +34,12 @@ file = "docker/compose.yaml"
 matches = '^\s{2}router:'
 
 [[claim]]
-id = "data-plane-owns-both-stores"
+id = "data-plane-owns-qdrant"
 repo = "data-plane"
-quote = "owns the Neo4j (graph + native vectors) and Qdrant"
+quote = "owns the Qdrant"
 file = "docker/compose.yaml"
-matches = '^\s{2}(neo4j|qdrant-cpu):'
-hits = { min = 2, max = 2 }
+matches = '^\s{2}qdrant-storage:'
+hits = { min = 1, max = 1 }
 
 [[claim]]
 id = "data-plane-cuda-profile"
@@ -80,7 +80,6 @@ in = [
     "data-plane",
     "obs-plane",
     "open-webui-service",
-    "chorus",
     "docint",
     "Nextext",
     "translator",
@@ -123,35 +122,6 @@ matches = '^\s+image:\s*ghcr\.io/open-webui/open-webui:[^@\s]+@sha256:[0-9a-f]{6
 hits = { min = 2, max = 2 }
 
 # --- Applications -----------------------------------------------------------
-
-[[claim]]
-id = "chorus-nine-tools"
-repo = "chorus"
-quote = "nine schema'd graph tools"
-says = "one module per tool; leading-underscore helpers are not tools"
-glob_count = { pattern = "chorus/tools/[!_]*.py", eq = 9 }
-
-[[claim]]
-id = "chorus-retention-dates"
-repo = "chorus"
-quote = "per-post retention dates"
-says = "ingestion stamps retention_until on each post"
-file = "chorus/ingestion/comments.py"
-matches = 'retention_until=retention\.until\('
-
-[[claim]]
-id = "chorus-audit-log"
-repo = "chorus"
-quote = "a hash-chained audit trail of every tool call"
-says = "the @audited wrapper, which every registered tool runs through, writes each call to the audit stream"
-file = "chorus/tools/_audit.py"
-matches = '^\s+audit\.emit_refs\('
-
-[[claim]]
-id = "chorus-entity-resolution"
-repo = "chorus"
-quote = "alias → entity resolution"
-exists = ["chorus/ingestion/resolution.py"]
 
 [[claim]]
 id = "docint-report-builder"

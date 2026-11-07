@@ -20,7 +20,7 @@ Two things apply to every caller:
 
 ## python-app-ci
 
-Four jobs for the Python consumers — the four apps (`chorus`, `docint`,
+Four jobs for the Python consumers — the three apps (`docint`,
 `Nextext`, `translator`) and `vllm-service`, which calls it lint-only with
 `run-tests: false`:
 

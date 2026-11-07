@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this repo is
 
 `nos-tromo/.github` — the **public** org-wide CI + shared-build-glue repo for the
-`nos-tromo` federation (~12 repos; see `profile/README.md` for the map). It ships
+`nos-tromo` federation (~11 repos; see `profile/README.md` for the map). It ships
 no application code. It provides two things to consumer repos:
 
 1. **Reusable GitHub Actions workflows** (`.github/workflows/*.yml`, `on: workflow_call`).
@@ -152,7 +152,7 @@ Everything runs from the repo root. The only tooling needed is Python 3.11+ and 
 ```bash
 # Run a drift validator against a fixture or a real consumer (exit 0 = aligned, 1 = drift):
 python3 scripts/validate_strict_config.py --consumer-root tests/fixtures/aligned
-python3 scripts/validate_strict_config.py --consumer-root ../chorus   # real consumer
+python3 scripts/validate_strict_config.py --consumer-root ../docint   # real consumer
 python3 scripts/validate_make_common.py   --consumer-root tests/fixtures/mk-aligned
 python3 scripts/validate_bundle_lib.py    --consumer-root tests/fixtures/bundle-aligned
 python3 scripts/validate_eslint_config.py --consumer-root tests/fixtures/eslint-aligned

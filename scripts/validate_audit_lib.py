@@ -12,7 +12,7 @@ it: where the lines go and how a request states its purpose. Both are
 vendored verbatim; the check is an exact file comparison.
 
 Adoption is presence-driven: a repo opts in by vendoring a file, wherever its
-package layout puts it (``chorus/utils/audit_event.py``,
+package layout puts it (``docint/utils/audit_event.py``,
 ``translator/audit_runtime.py``, ...). Unlike ``common.mk`` there is no
 separate opt-in to miss: code that imports a module fails on its own without
 it.

@@ -66,6 +66,6 @@ consumers get, applied to this repo's own fixture. The same holds for
 To run the validator against a real consumer locally:
 
 ```bash
-python3 scripts/validate_strict_config.py --consumer-root ../chorus
+python3 scripts/validate_strict_config.py --consumer-root ../docint
 ```
 
