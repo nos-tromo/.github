@@ -57,7 +57,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           # Keep in sync with the uv-version default in python-app-ci.yml; the
           # "Assert uv pin matches python-app-ci" step below fails on drift.
@@ -216,7 +216,7 @@ jobs:
           echo "OK: validator correctly returned non-zero on drift"
       - name: Absent fixture should skip (pass)
         run: python3 scripts/validate_audit_lib.py --consumer-root tests/fixtures/audit-absent
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           # Keep in sync with the uv-version default in python-app-ci.yml.
           version: 0.12.11
@@ -354,7 +354,7 @@ jobs:
           python3 scripts/validate_profile_claims.py \
             --members-root . --member .github=. --only-present || rc=$?
           [ "$rc" -eq 0 ] || { echo "Bug: hub's own profile claims exited $rc, want 0" >&2; exit 1; }
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           # Keep in sync with the uv-version default in python-app-ci.yml.
           version: 0.12.11
@@ -396,7 +396,7 @@ jobs:
           rc=0
           python3 scripts/validate_image_provenance.py --consumer-root tests/fixtures/prov-live-bad || rc=$?
           [ "$rc" -eq 1 ] || { echo "Bug: unsigned live fixture exited $rc, want 1" >&2; exit 1; }
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           # Keep in sync with the uv-version default in python-app-ci.yml.
           version: 0.12.11
@@ -410,7 +410,7 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.11'
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           # Keep in sync with the uv-version default in python-app-ci.yml.
           version: 0.12.11
@@ -453,7 +453,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           # Keep in sync with the uv-version default in python-app-ci.yml; the
           # "Assert uv pin matches python-app-ci" step below fails on drift.
