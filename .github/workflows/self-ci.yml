@@ -375,7 +375,7 @@ jobs:
           python-version: '3.11'
       - name: Fixtures with stub verifiers (aligned 0, drifted 1, outage 2, absent skip)
         run: bash tests/provenance_smoke.sh
-      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
       - name: Live - one real digest per signer-policy entry must verify
         # The real gh and cosign against the live registries, attestation API
         # and transparency log, with this job's read-only token - the same

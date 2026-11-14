@@ -173,7 +173,7 @@ jobs:
         run: python3 .nos-tromo-github-ref/scripts/validate_action_pins.py
       - name: Install cosign
         # For the cosign-signed entries of the image-provenance policy.
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
       - name: Verify signed image provenance
         # Every digest-pinned image whose publisher signs it (the hub's
         # configs/image-provenance/signers.toml) must verify; unsigned images
