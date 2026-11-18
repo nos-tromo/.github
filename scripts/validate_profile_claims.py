@@ -118,7 +118,7 @@ _LABEL_SEP_RE = re.compile(r"<br\s*/?>")
 def parse_diagram_repos(page: str) -> set[str]:
     """Extract the repository names drawn as nodes in the mermaid diagram.
 
-    A node's id is an arbitrary short handle (``webui``, ``vllm``), so the
+    A node's id is an arbitrary short handle (``edge``, ``vllm``), so the
     repository name is read from the node's *label*, which is written as
     ``name<br/>description``. Requiring that separator is what distinguishes a
     repository node from decoration such as a ``Users`` actor, with no
