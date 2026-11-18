@@ -21,9 +21,9 @@
 [[claim]]
 id = "vllm-cpu-only-shapes"
 repo = "vllm-service"
-quote = "eight single-service CPU-only shapes"
+quote = "nine single-service CPU-only shapes"
 says = "one compose file per single-service shape"
-glob_count = { pattern = "docker/compose.*-only.yaml", eq = 8 }
+glob_count = { pattern = "docker/compose.*-only.yaml", eq = 9 }
 
 [[claim]]
 id = "vllm-router-fronts-everything"
