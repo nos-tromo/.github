@@ -18,7 +18,7 @@ flowchart TB
     docint["docint<br/>document RAG"]
     nextext["Nextext<br/>speech → text"]
     translator["translator<br/>translation"]
-    webui["open-webui-service<br/>chat UI"]
+    ghostwriter["ghostwriter<br/>chat assistant"]
   end
 
   subgraph Platform["Self-hosted platform"]
@@ -27,18 +27,18 @@ flowchart TB
     obs["obs-plane<br/>Prometheus · Grafana · Loki"]
   end
 
-  users -->|HTTPS :443 · :8443| edge
+  users -->|HTTPS :443| edge
 
   edge -->|edge-net| docint
   edge -->|edge-net| nextext
   edge -->|edge-net| translator
-  edge -->|edge-net · :8443| webui
+  edge -->|edge-net| ghostwriter
   edge -->|edge-net · Grafana| obs
 
   docint -->|inference-net| vllm
   nextext -->|inference-net| vllm
   translator -->|inference-net| vllm
-  webui -->|inference-net| vllm
+  ghostwriter -->|inference-net| vllm
 
   docint -->|data-net| data
 
@@ -47,17 +47,16 @@ flowchart TB
   obs -.->|scrapes| Apps
 ```
 
-Three network seams keep the tiers apart — `inference-net` (apps ↔ inference), `data-net` (apps ↔ state), `edge-net` (gateway ↔ app frontends) — and the gateway joins only the last of them. It is also the only member that publishes host ports: `:443`, `:8443` for the chat UI, and `:80` as a redirect.
+Three network seams keep the tiers apart — `inference-net` (apps ↔ inference), `data-net` (apps ↔ state), `edge-net` (gateway ↔ app frontends) — and the gateway joins only the last of them. It is also the only member that publishes host ports: `:443` and `:80` as a redirect.
 
 ### Platform
 
 | Repo | What it does |
 |---|---|
-| **[vllm-service](https://github.com/nos-tromo/vllm-service)** | One LiteLLM-fronted, OpenAI-compatible endpoint multiplexing chat, dense & sparse embeddings, rerank, NER (GLiNER on Ray Serve), CLIP, Whisper transcription & translation, diarization & VAD, topic-model fitting — plus eight single-service CPU-only shapes and offline bundles for air-gapped hosts. |
+| **[vllm-service](https://github.com/nos-tromo/vllm-service)** | One LiteLLM-fronted, OpenAI-compatible endpoint multiplexing chat, dense & sparse embeddings, rerank, NER (GLiNER on Ray Serve), CLIP, Whisper transcription & translation, diarization & VAD, topic-model fitting, face detection & grouping — plus nine single-service CPU-only shapes and offline bundles for air-gapped hosts. |
 | **[data-plane](https://github.com/nos-tromo/data-plane)** | Stateful backbone: owns the Qdrant (document vectors, CPU or CUDA) volumes so the apps stay disposable — with snapshot backup and restore runbooks. |
 | **[obs-plane](https://github.com/nos-tromo/obs-plane)** | Airgap-first observability plane — Prometheus, Grafana, Loki and Alloy plus host and container exporters and black-box health probes, all pulled digest-pinned images; dashboards provisioned from files, alerts as committed Prometheus and Loki rules, no runtime fetching or phone-home. |
 | **[edge-plane](https://github.com/nos-tromo/edge-plane)** | The federation's single entry point — Caddy (TLS, path routing) + Authelia (forward-auth SSO, file-backed users), the one member that publishes ports at all. Strips client-supplied identity headers, authenticates every request, injects the trusted `X-Auth-User` / `X-Auth-Email` headers the apps consume, and fronts a static portal of service tiles. |
-| **[open-webui-service](https://github.com/nos-tromo/open-webui-service)** | Open WebUI chat frontend on a digest-pinned upstream image with every bundled provider disabled — chat, RAG embeddings and speech-to-text all leave through the shared LiteLLM endpoint — served on the gateway's dedicated site with trusted-header SSO. |
 
 ### Applications
 
@@ -66,6 +65,7 @@ Three network seams keep the tiers apart — `inference-net` (apps ↔ inference
 | **[docint](https://github.com/nos-tromo/docint)** | Multimodal document-intelligence RAG — FastAPI + React SPA over Qdrant: hybrid retrieval with graph-assisted query expansion, entity resolution, an agent orchestrator, a Report Builder exporting case files (Markdown, HTML, JSON, CSV, PDF), and server-streamed CSV and ZIP extracts. |
 | **[Nextext](https://github.com/nos-tromo/Nextext)** | Transcribe, translate, diarize & analyze speech from audio/video — CLI + FastAPI job API + React SPA, with Whisper, LLM, GLiNER, diarization and VAD each on its own external endpoint; no local GPU, no bundled weights. |
 | **[translator](https://github.com/nos-tromo/translator)** | Self-hosted translation service — FastAPI API + React SPA over any OpenAI-compatible endpoint, model-agnostic by env, ~50 languages with LLM-based source-language detection, no bundled weights. |
+| **[ghostwriter](https://github.com/nos-tromo/ghostwriter)** | Agentic chat assistant — plain chat with a per-message reasoning switch; a file dropped into a chat goes to the shared tool tier, and the result downloads in the chat. |
 
 ### Engineering glue
 

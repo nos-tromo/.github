@@ -128,7 +128,7 @@ jobs:
         run: |
           set -euo pipefail
           marker='<!-- profile-audit:rolling -->'
-          gh label create profile-drift --force \
+          gh label create profile-drift --repo "$REPO" --force \
             --color D93F0B --description 'profile/README.md no longer matches the member repos'
 
           number=$(gh issue list --repo "$REPO" --label profile-drift --state all \
