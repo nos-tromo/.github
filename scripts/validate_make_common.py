@@ -15,7 +15,7 @@ Adoption is **include-driven**: a repo opts in by adding
 * missing + included     -> failure (the Makefile references a file it did
   not vendor; ``make`` itself would also break).
 * missing + not included -> skipped (the repo runs a bespoke Makefile and
-  has legitimately not adopted common.mk, e.g. data-plane, open-webui).
+  has legitimately not adopted common.mk, e.g. data-plane, deploy).
 
 Tying the requirement to the opt-in keeps it self-maintaining: a repo that
 adopts common.mk later automatically becomes subject to the check, with no
@@ -44,7 +44,7 @@ def _makefile_opts_in(consumer_root: Path) -> bool:
     A repo opts in by adding an ``include make/common.mk`` directive to its
     top-level ``Makefile``. That opt-in is what makes the vendored copy
     *required*: a repo with no such directive runs a bespoke Makefile and is
-    legitimately exempt (e.g. data-plane, open-webui).
+    legitimately exempt (e.g. data-plane, deploy).
 
     Args:
         consumer_root: The consumer repo root to inspect.

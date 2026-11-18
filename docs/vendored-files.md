@@ -80,5 +80,5 @@ the tests assert that its caps equal the event module's.
 
 So vendored-and-opted-in drift-checks; **missing-but-opted-in fails**; and
 missing-and-not-opted-in is skipped (a legitimately bespoke repo, e.g.
-`data-plane`, `open-webui`). A repo that adopts later becomes subject to the
+`data-plane`, `deploy`). A repo that adopts later becomes subject to the
 check automatically — there is no exemption list to maintain.

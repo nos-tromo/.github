@@ -14,7 +14,7 @@ Adoption is **include-driven**: a repo opts in by shipping a
 * missing + sourced    -> failure (the wrapper sources a file it did not
   vendor; ``make bundle`` would break).
 * missing + no wrapper -> skipped (the repo has no airgap bundle flow and
-  has legitimately not adopted the library, e.g. open-webui, deploy).
+  has legitimately not adopted the library, e.g. deploy).
 
 Tying the requirement to the opt-in keeps it self-maintaining: a repo that
 adds a bundle wrapper later automatically becomes subject to the check.
@@ -37,7 +37,7 @@ def _bundle_wrapper_opts_in(consumer_root: Path) -> bool:
     A repo opts in by shipping ``scripts/bundle_images.sh`` that sources the
     vendored ``scripts/bundle-lib.sh``. That opt-in is what makes the vendored
     library *required*: a repo with no such wrapper has no airgap bundle flow
-    and is legitimately exempt (e.g. open-webui, deploy).
+    and is legitimately exempt (e.g. deploy).
 
     Args:
         consumer_root: The consumer repo root to inspect.

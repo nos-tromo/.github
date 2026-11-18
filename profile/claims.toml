@@ -79,7 +79,7 @@ in = [
     "vllm-service",
     "data-plane",
     "obs-plane",
-    "open-webui-service",
+    "ghostwriter",
     "docint",
     "Nextext",
     "translator",
@@ -110,15 +110,6 @@ quote = "headers the apps consume"
 says = "Authelia's assertion is mapped onto the federation contract headers"
 file = "caddy/Caddyfile"
 matches = 'Remote-(User|Email)>X-Auth-'
-hits = { min = 2, max = 2 }
-
-[[claim]]
-id = "open-webui-pinned-image"
-repo = "open-webui-service"
-quote = "digest-pinned upstream image"
-says = "both services running the Open WebUI image pin it by digest"
-file = "docker/compose.yaml"
-matches = '^\s+image:\s*ghcr\.io/open-webui/open-webui:[^@\s]+@sha256:[0-9a-f]{64}'
 hits = { min = 2, max = 2 }
 
 # --- Applications -----------------------------------------------------------
@@ -165,6 +156,14 @@ repo = "translator"
 quote = "~50 languages"
 file = "translator/language_map.json"
 json_len = { min = 45, max = 60 }
+
+[[claim]]
+id = "ghostwriter-tool-tier"
+repo = "ghostwriter"
+quote = "goes to the shared tool tier"
+says = "the backend joins the workbench network, where the tool tier answers"
+file = "docker/compose.yaml"
+matches = '^\s{6}workbench-net:'
 
 # --- Engineering glue -------------------------------------------------------
 

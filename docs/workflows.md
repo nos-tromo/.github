@@ -152,7 +152,7 @@ matters fails there.
 ## infra-validation
 
 Five jobs for the infra repos (`vllm-service`, `data-plane`, `obs-plane`,
-`edge-plane`, `open-webui-service`, `deploy`):
+`edge-plane`, `deploy`):
 
 - **`yamllint`** — `yamllint -d "{extends: relaxed, …}"` over the whole repo.
 - **`shellcheck`** — over `shell-scripts-glob`; skips when nothing matches.
