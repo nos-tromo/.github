@@ -91,7 +91,7 @@ jobs:
           fetch-depth: 1
       - name: Run Claude Code
         id: claude
-        uses: anthropics/claude-code-action@61a9c274fa7110a66dfafc1bbbced03833eb25fe # v1.0.269
+        uses: anthropics/claude-code-action@f3b070c88125d33dbae5653df5f143101d4ea9dc # v1.0.276
         with:
           # Claude Max/Pro subscription auth — the token `/install-github-app`
           # provisions. Forwarded from an org-level secret by `secrets: inherit`.
